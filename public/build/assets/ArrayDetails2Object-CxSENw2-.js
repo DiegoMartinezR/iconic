@@ -1,0 +1,1 @@
+import{j as r}from"./vendor-react-XBa-kXBa.js";import{H as t}from"./HtmlContent-BpgJIl7r.js";const e=(e="")=>r.jsx(t,{html:String(e).replace(/\*(.*?)\*/g,'<span style="color: #ec4899">$1</span>')}),o=(r=[])=>{const t={};return r.forEach(r=>{t[r.page+"."+r.name]=r.description}),t};export{o as A,e};

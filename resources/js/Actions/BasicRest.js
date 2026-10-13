@@ -1,0 +1,366 @@
+import { Cookies, Fetch } from "sode-extend-react";
+import { toast } from "sonner";
+import BooleanLimit from "../Utils/BooleanLimit";
+
+class BasicRest {
+    is_use_notify = true;
+    path = null;
+    hasFiles = false;
+    controller = null;
+    booleanLimitKey = null;
+    constructor() {
+        this.controller = new AbortController();
+    }
+
+    resolveBooleanLimitKey = () => {
+        if (this.booleanLimitKey) return this.booleanLimitKey;
+        if (!this.path) return null;
+        const segments = this.path.split("/").filter(Boolean);
+        if (segments.length === 0) return null;
+        const lastSegment = segments[segments.length - 1];
+        if (!lastSegment) return null;
+        return lastSegment.replace(/-/g, "_");
+    };
+
+    simpleGet = async (url, params, notify = true) => {
+        try {
+            const { status, result } = await Fetch(url, params);
+            if (!status)
+                throw new Error(
+                    result?.message || "Ocurrio un error inesperado"
+                );
+            return result.data ?? true;
+        } catch (error) {
+
+            if (notify) toast.error("¡Error!", {
+                description: error.message,
+                duration: 3000,
+                position: "bottom-center",
+                richColors: true
+            });
+            return null;
+        }
+    };
+
+    paginate = async (params) => {
+        this.controller.abort("Nothing");
+        this.controller = new AbortController();
+        const signal = this.controller.signal;
+        const res = await fetch(`/api/${this.path}/paginate`, {
+            method: "POST",
+            headers: {
+                Accept: "application/json",
+                "Content-Type": "application/json",
+                "X-Xsrf-Token": decodeURIComponent(Cookies.get("XSRF-TOKEN")),
+            },
+            body: JSON.stringify(params),
+            signal,
+        });
+        return await res.json();
+    };
+
+    save = async (request, callback = () => { }) => {
+        try {
+            let status = false;
+            let result = {};
+            if (this.hasFiles) {
+                const res = await fetch(`/api/${this.path}`, {
+                    method: "POST",
+                    headers: {
+                        "X-Xsrf-Token": decodeURIComponent(
+                            Cookies.get("XSRF-TOKEN")
+                        ),
+                    },
+                    body: request,
+                });
+                status = res.ok;
+                result = JSON.parseable(await res.text());
+            } else {
+                const fetchRes = await Fetch(`/api/${this.path}`, {
+                    method: "POST",
+                    body: JSON.stringify(request),
+                });
+                status = fetchRes.status;
+                result = fetchRes.result;
+            }
+
+            if (!status)
+                throw new Error(
+                    result?.message || "Ocurrio un error inesperado"
+                );
+
+            if (this.is_use_notify) {
+                toast.success("¡Excelente!", {
+                    description: result.message,
+
+                    duration: 3000,
+                    position: "bottom-center",
+                    richColors: true
+                });
+            }
+
+
+            callback?.();
+            return result?.data ?? true;
+        } catch (error) {
+
+            toast.error("¡Error!", {
+                description: error.message,
+
+                duration: 3000,
+                position: "bottom-center",
+                richColors: true
+            });
+            return null;
+        }
+    };
+
+    status = async ({ id, status }) => {
+        try {
+            const { status: fetchStatus, result } = await Fetch(
+                `/api/${this.path}/status`,
+                {
+                    method: "PATCH",
+                    body: JSON.stringify({ id, status }),
+                }
+            );
+            if (!fetchStatus)
+                throw new Error(
+                    result?.message ?? "Ocurrio un error inesperado"
+                );
+
+            toast.success("¡Excelente!", {
+                description: result.message,
+
+                duration: 3000,
+                position: "bottom-center",
+                richColors: true
+            });
+
+            return true;
+        } catch (error) {
+            toast.error("¡Error!", {
+                description: error.message,
+
+                duration: 3000,
+                position: "bottom-center",
+                richColors: true
+            });
+
+            return false;
+        }
+    };
+
+    boolean = async ({ id, field, value }) => {
+        try {
+            const { status: fetchStatus, result } = await Fetch(
+                `/api/${this.path}/boolean`,
+                {
+                    method: "PATCH",
+                    body: JSON.stringify({ id, field, value }),
+                }
+            );
+            const limitKey = this.resolveBooleanLimitKey();
+            if (limitKey && result?.data?.limit) {
+                BooleanLimit.updateFromServer(limitKey, result.data);
+            }
+            if (!fetchStatus)
+                throw new Error(
+                    result?.message ?? "Ocurrio un error inesperado"
+                );
+
+            toast.success("¡Excelente!", {
+                description: result.message,
+
+                duration: 3000,
+                position: "bottom-center",
+                richColors: true
+            });
+
+            return result?.data ?? true;
+        } catch (error) {
+            toast.error("¡Error!", {
+                description: error.message,
+
+                duration: 3000,
+                position: "bottom-center",
+                richColors: true
+            });
+
+            return false;
+        }
+    };
+
+    delete = async (id) => {
+        try {
+            const { status: fetchStatus, result } = await Fetch(
+                `/api/${this.path}/${id}`,
+                {
+                    method: "DELETE",
+                }
+            );
+            if (!fetchStatus)
+                throw new Error(
+                    result?.message ?? "Ocurrio un error inesperado"
+                );
+
+            toast.success("¡Excelente!", {
+                description: result.message,
+
+                duration: 3000,
+                position: "bottom-center",
+                richColors: true
+            });
+
+            return true;
+        } catch (error) {
+            toast.error("¡Error!", {
+                description: error.message,
+
+                duration: 3000,
+                position: "bottom-center",
+                richColors: true
+            });
+
+            return false;
+        }
+    };
+
+    // Método para obtener datos con soporte para relaciones
+    get = async (idOrParams = {}, withRelations = []) => {
+        try {
+            let url = `/api/${this.path}`;
+            if (
+                typeof idOrParams === "string" ||
+                typeof idOrParams === "number"
+            ) {
+                // Si es un ID, construir la URL con el ID
+                url += `/${idOrParams}`;
+            } else if (
+                typeof idOrParams === "object" &&
+                Object.keys(idOrParams).length > 0
+            ) {
+                // Si son parámetros, agregarlos como query string
+                const queryParams = new URLSearchParams(idOrParams).toString();
+                url += `?${queryParams}`;
+            }
+
+            // Agregar relaciones si se especifican
+            if (withRelations.length > 0) {
+                const withParam = withRelations.join(",");
+                url += `${url.includes("?") ? "&" : "?"}with=${withParam}`;
+            }
+
+            const response = await fetch(url, {
+                method: "GET",
+                headers: {
+                    Accept: "application/json",
+                    "Content-Type": "application/json",
+                    "X-Xsrf-Token": decodeURIComponent(
+                        Cookies.get("XSRF-TOKEN")
+                    ),
+                },
+            });
+
+            if (!response.ok) {
+                throw new Error(
+                    `Error ${response.status}: ${response.statusText}`
+                );
+            }
+
+            return await response.json();
+        } catch (error) {
+            toast.error("¡Error!", {
+                description: error.message,
+
+                duration: 3000,
+                position: "bottom-center",
+                richColors: true
+            });
+            return null;
+        }
+    };
+
+    reorder = async (id, orderIndex) => {
+        try {
+            const response = await fetch(`/api/${this.path}/${id}/reorder`, {
+                method: 'PUT',
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                    'X-Xsrf-Token': decodeURIComponent(Cookies.get('XSRF-TOKEN'))
+                },
+                body: JSON.stringify({ order_index: orderIndex })
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const result = await response.json();
+            
+            if (this.is_use_notify && result.success) {
+                toast.success("¡Excelente!", {
+                    description: result.message,
+                    duration: 3000,
+                    position: "bottom-center",
+                    richColors: true
+                });
+            }
+            
+            return result;
+        } catch (error) {
+            if (this.is_use_notify) {
+                toast.error("¡Error!", {
+                    description: error.message,
+                    duration: 3000,
+                    position: "bottom-center",
+                    richColors: true
+                });
+            }
+            console.error('Error reordering:', error);
+            return false;
+        }
+    };
+    /**
+     * Realiza una petición POST genérica
+     * @param {string} url - URL relativa (sin /api/ si se pasa completa o ruta parcial)
+     * @param {object} data - Datos JSON a enviar
+     */
+    post = async (url, data = {}) => {
+        try {
+            // Asegurar que la URL sea relativa a /api/ o absoluta
+            const fullUrl = url.startsWith('http') ? url : (url.startsWith('/api') ? url : `/api/${url}`);
+            
+            const fetchRes = await Fetch(fullUrl, {
+                method: "POST",
+                body: JSON.stringify(data),
+            });
+
+            if (!fetchRes.status) {
+                throw new Error(fetchRes.result?.message || "Ocurrió un error inesperado");
+            }
+
+            if (this.is_use_notify) {
+                toast.success("¡Excelente!", {
+                    description: fetchRes.result.message || 'Operación realizada con éxito',
+                    duration: 3000,
+                    position: "bottom-center",
+                    richColors: true
+                });
+            }
+
+            return fetchRes.result;
+        } catch (error) {
+            toast.error("¡Error!", {
+                description: error.message,
+                duration: 3000,
+                position: "bottom-center",
+                richColors: true
+            });
+            return null;
+        }
+    };
+}
+
+export default BasicRest;

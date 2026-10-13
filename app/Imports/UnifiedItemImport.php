@@ -1,0 +1,1984 @@
+<?php
+
+namespace App\Imports;
+
+use App\Models\Item;
+use App\Models\Category;
+use App\Models\SubCategory;
+use App\Models\Collection;
+use App\Models\Brand;
+use App\Models\ItemSpecification;
+use App\Models\ItemImage;
+use App\Models\Store;
+use App\Models\Tag;
+use App\Models\DiscountRule;
+use Exception;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\DB;
+use Maatwebsite\Excel\Concerns\SkipsOnError;
+use Maatwebsite\Excel\Concerns\SkipsOnFailure;
+use Maatwebsite\Excel\Concerns\ToModel;
+use Maatwebsite\Excel\Concerns\WithHeadingRow;
+use Maatwebsite\Excel\Validators\Failure;
+use Illuminate\Support\Str;
+use SoDe\Extend\Crypto;
+use Throwable;
+use Illuminate\Support\Facades\Log;
+use SoDe\Extend\File;
+
+class UnifiedItemImport implements ToModel, WithHeadingRow, SkipsOnError, SkipsOnFailure
+{
+    use \Maatwebsite\Excel\Concerns\Importable;
+
+    private $errors = [];
+    private $fieldMappings = [];
+    private $importMode = 'reset'; // 'reset' o 'add_update'
+    private $skuImagesCache = [];
+    private static $downloadCache = [];
+    private $rowCount = 0;
+    private $categoriesCache = [];
+    private $subCategoriesCache = [];
+    private $collectionsCache = [];
+    private $brandsCache = [];
+    private $storesCache = [];
+    private $tagsCache = [];
+    private $attributesCache = [];
+
+    /**
+     * Constructor con configuración flexible
+     * 
+     * @param array $options Opciones de configuración:
+     *   - truncate: bool - Si debe limpiar las tablas (default: true)
+     *   - mode: string - Modo de importación: 'reset' o 'add_update' (default: 'reset')
+     *   - fieldMappings: array - Mapeo de campos alternativos
+     */
+    public function __construct(array $options = [])
+    {
+        $this->importMode = $options['mode'] ?? 'reset';
+        
+        // Respetar explícitamente el parámetro 'truncate' si se pasa en $options (ej. al previsualizar)
+        if (array_key_exists('truncate', $options)) {
+            $this->truncateMode = filter_var($options['truncate'], FILTER_VALIDATE_BOOLEAN);
+        } else {
+            $this->truncateMode = ($this->importMode === 'reset');
+        }
+
+        $this->fieldMappings = $options['fieldMappings'] ?? $this->getDefaultFieldMappings();
+
+        self::$downloadCache = [];
+        $this->skuImagesCache = [];
+        $this->categoriesCache = [];
+        $this->subCategoriesCache = [];
+        $this->collectionsCache = [];
+        $this->brandsCache = [];
+        $this->storesCache = [];
+        $this->tagsCache = [];
+        $this->attributesCache = [];
+
+        if ($this->truncateMode) {
+            $this->truncateTables();
+        }
+    }
+
+    /**
+     * Configuración de mapeo de campos por defecto
+     * Permite usar diferentes nombres de columnas para el mismo campo
+     */
+    private function getDefaultFieldMappings(): array
+    {
+        return [
+            'collection' => ['collection', 'colleccion', 'coleccion'],
+            'categoria' => ['categoria', 'category', 'Categoria'],
+            'summary' => ['summary', 'resumen', 'descripcion_corta'],
+            'subcategoria' => ['subcategoria', 'subcategory', 'sub_categoria'],
+            'marca' => ['marca', 'brand'],
+            'sku' => ['sku', 'codigo', 'code', 'SKU', 'código'],
+            'nombre_producto' => ['nombre_de_producto', 'nombre_producto', 'nombre_del_producto', 'name', 'producto', 'Nombre del producto'],
+            'descripcion' => ['descripcion', 'description', 'Descripcion'],
+            'precio' => ['precio', 'price', 'Precio'],
+            'descuento' => ['descuento', 'discount', 'precio_descuento'],
+            'stock' => ['stock', 'cantidad', 'inventory', 'Stock'],
+            'stock_unlimited' => ['stock_unlimited', 'is_stock_unlimited', 'stock_ilimitado', 'es_stock_ilimitado', 'ilimitado', 'Stock ilimitado', 'Stock Ilimitado', 'stock_unlimited_1_0'],
+            'color' => ['color', 'colour'],
+            'talla' => ['size', 'talla', 'size_talla'],
+            'agrupador' => ['agrupador'],
+            'tienda' => ['tienda', 'store', 'store_id', 'Tienda'],
+            'peso' => ['peso', 'weight', 'Peso'],
+            // Nuevos campos para estado del producto
+            'es_nuevo' => ['es_nuevo', 'is_new', 'nuevo', 'new', 'Es nuevo'],
+            'en_oferta' => ['en_oferta', 'offering', 'oferta', 'offer', 'En oferta'],
+            'recomendado' => ['recomendado', 'recommended', 'recomendar', 'Recomendado'],
+            'destacado' => ['destacado', 'featured', 'destacar', 'Destacado'],
+            'visible' => ['visible', 'activo', 'active', 'Visible'],
+            'estado' => ['estado', 'status', 'Estado'],
+            'es_maestro' => ['es_maestro', 'is_master', 'maestro', 'master', 'Es maestro'],
+            // Nuevos campos para promociones y reglas
+            'regla_descuento' => ['regla_descuento', 'regla_de_descuento', 'discount_rule', 'Regla de descuento'],
+            'promociones' => ['promociones', 'tags', 'etiquetas', 'Promociones', 'Etiquetas', 'Tags', 'Etiquetas / Tags'],
+            'caracteristicas' => [
+                'caracteristicas',
+                'features',
+                'característica',
+                'caracteristica',
+                'características',
+                'lista_de_caracteristicas',
+                'lista_caracteristicas',
+                'Características',
+                'Características (separadas por coma)'
+            ],
+            'especificaciones_principales' => [
+                'especificaciones_principales',
+                'especificacion_principal',
+                'especificaciones_destacadas',
+                'principales',
+                'specs_principales',
+                'Especificaciones principales',
+                'Especificaciones principales (separadas por coma y dos puntos)'
+            ],
+            'especificaciones_generales' => [
+                'especificaciones_generales_separado_por_comas_y_dos_puntos',
+                'especificaciones_adicionales_separadas_por_coma_y_dos_puntos',
+                'especificaciones_generales',
+                'specs_generales',
+                'Especificaciones adicionales (separadas por coma y dos puntos)'
+            ],
+            'especificaciones_tecnicas' => [
+                'especificaciones_tecnicas_separado_por_slash_para_filas_y_dos_puntos_para_columnas',
+                'especificaciones_tecnicas_separadas_por_slash_y_dos_puntos',
+                'especificaciones_tecnicas',
+                'especificacion_tecnica',
+                'datos_tecnicos',
+                'datos técnicos',
+                'datos tecnicos',
+                'specs_tecnicas',
+                'especificaciones tecnicas',
+                'Especificaciones técnicas (separadas por slash y dos puntos)',
+                'Especificaciones técnicas'
+            ],
+            'especificaciones_iconos' => [
+                'especificaciones_iconos_separado_por_comas',
+                'especificaciones_iconos',
+                'specs_iconos'
+            ],
+            'atributos' => ['atributos', 'attribute', 'atrib', 'Atributos', 'atributo'],
+            'valores' => ['valores', 'values', 'valor', 'Valores', 'valores_atributos', 'valor del attribute', 'valor_del_attribute'],
+            'imagen' => ['imagen', 'image', 'imagen_principal', 'Image', 'Imagen'],
+            'galeria' => ['galeria', 'gallery', 'imagenes_galeria', 'imágenes_galería', 'galería', 'gallery_images']
+        ];
+    }
+
+    /**
+     * Preparar tablas de forma segura (solo limpiar items y sus dependencias directas)
+     */
+    private function truncateTables(): void
+    {
+        DB::statement('SET FOREIGN_KEY_CHECKS=0;');
+
+        // Solo limpiar tablas de items y sus dependencias directas
+        // Las tablas de categorías, marcas, etc. se mantienen para reutilizar
+        ItemImage::truncate();
+        ItemSpecification::truncate();
+        Item::truncate();
+
+        DB::statement('SET FOREIGN_KEY_CHECKS=1;');
+    }
+
+    /**
+     * Obtener valor de campo usando mapeos alternativos
+     */
+    private function getFieldValue(array $row, string $fieldKey, $default = null)
+    {
+        $possibleKeys = $this->fieldMappings[$fieldKey] ?? [$fieldKey];
+
+        foreach ($possibleKeys as $key) {
+            $variants = [
+                $key,
+                strtolower($key),
+                strtolower(trim($key)),
+                Str::slug($key, '_'),
+                str_replace('-', '_', Str::slug($key, '_')),
+            ];
+
+            foreach (array_unique($variants) as $variant) {
+                if (array_key_exists($variant, $row) && !is_null($row[$variant]) && trim(strval($row[$variant])) !== '') {
+                    return trim(strval($row[$variant]));
+                }
+            }
+        }
+
+        return $default;
+    }
+
+    /**
+     * Verificar si existe al menos uno de los campos mapeados
+     */
+    private function hasField(array $row, string $fieldKey): bool
+    {
+        $possibleKeys = $this->fieldMappings[$fieldKey] ?? [$fieldKey];
+
+        foreach ($possibleKeys as $key) {
+            $variants = [
+                $key,
+                strtolower($key),
+                strtolower(trim($key)),
+                Str::slug($key, '_'),
+                str_replace('-', '_', Str::slug($key, '_')),
+            ];
+
+            foreach (array_unique($variants) as $variant) {
+                if (array_key_exists($variant, $row) && !is_null($row[$variant]) && trim(strval($row[$variant])) !== '') {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    public function model(array $row)
+    {
+        $this->rowCount++;
+        try {
+            // Verificar si la fila está vacía
+            if ($this->isRowEmpty($row)) {
+                return null;
+            }
+
+            // Obtener datos básicos del producto
+            $sku = $this->getFieldValue($row, 'sku');
+            $nombreProducto = $this->getFieldValue($row, 'nombre_producto');
+
+            // Debug temporal - agregar logging
+            $pesoValue = $this->getFieldValue($row, 'peso');
+            $pesoNumeric = $this->getNumericValue($row, 'peso', 0);
+
+            Log::info("Procesando fila:", [
+                'sku_encontrado' => $sku,
+                'nombre_encontrado' => $nombreProducto,
+                'peso_raw' => $pesoValue,
+                'peso_numeric' => $pesoNumeric,
+                'campos_disponibles' => array_keys($row),
+                'mapeo_peso' => $this->fieldMappings['peso'] ?? 'no definido',
+                'mapeo_nombre' => $this->fieldMappings['nombre_producto'] ?? 'no definido'
+            ]);
+
+            if (!$sku || !$nombreProducto) {
+                throw new Exception("SKU y nombre del producto son requeridos");
+            }
+
+            // 1️⃣ Crear/obtener categoría (requerida)
+            $categoria = $this->getFieldValue($row, 'categoria');
+            if (!$categoria) {
+                throw new Exception("La categoría es requerida");
+            }
+            $category = $this->findOrCreateCategory($categoria);
+
+            // 2️⃣ Crear/obtener subcategoría (opcional)
+            $subCategory = null;
+            if ($this->hasField($row, 'subcategoria')) {
+                $subcategoria = $this->getFieldValue($row, 'subcategoria');
+                if ($subcategoria) {
+                    $subCategory = $this->findOrCreateSubCategory($subcategoria, $category->id);
+                }
+            }
+
+            // 3️⃣ Crear/obtener colección (opcional)
+            $collection = null;
+            if ($this->hasField($row, 'collection')) {
+                $collectionName = $this->getFieldValue($row, 'collection');
+                if ($collectionName) {
+                    $collection = $this->findOrCreateCollection($collectionName);
+                }
+            }
+
+            // 4️⃣ Crear/obtener marca (opcional)
+            $brand = null;
+            if ($this->hasField($row, 'marca')) {
+                $marca = $this->getFieldValue($row, 'marca');
+                if ($marca) {
+                    $brand = $this->findOrCreateBrand($marca);
+                }
+            }
+
+            // 5️⃣ Generar slug único para el producto (pasando SKU para optimización en add_update)
+            $slug = $this->generateUniqueSlug($nombreProducto, $this->getFieldValue($row, 'color'), $this->getFieldValue($row, 'talla'), $sku);
+
+            // 6️⃣ Preparar datos del precio
+            $precio = $this->getNumericValue($row, 'precio');
+            $descuento = $this->getNumericValue($row, 'descuento');
+            $finalPrice = $this->calculateFinalPrice($precio, $descuento);
+            $discountPercent = $this->calculateDiscountPercent($precio, $descuento);
+
+            // 7️⃣ Crear el producto
+            // 7️⃣ Obtener tienda/store_id si existe
+            $store = null;
+            if ($this->hasField($row, 'tienda')) {
+                $storeName = $this->getFieldValue($row, 'tienda');
+                if ($storeName) {
+                    $store = $this->findOrCreateStore($storeName);
+                }
+            }
+
+            // Determinar si el stock es ilimitado
+            $rawStock = strtolower(trim((string)$this->getFieldValue($row, 'stock', '')));
+            $isUnlimitedByStockField = in_array($rawStock, ['ilimitado', 'unlimited', 'infinito', '-1']);
+            $isUnlimitedByField = $this->getBooleanValue($row, 'stock_unlimited', false);
+            $stockUnlimited = $isUnlimitedByStockField || $isUnlimitedByField;
+
+            $itemData = [
+                'sku' => $sku,
+                'agrupador' => $this->getFieldValue($row, 'agrupador', ''),
+                'name' => $nombreProducto,
+                'description' => $this->getFieldValue($row, 'descripcion', ''),
+                'summary' => $this->getFieldValue($row, 'summary', ''),
+                'price' => $precio ?? 0,
+                'discount' => $descuento,
+                'final_price' => $finalPrice,
+                'discount_percent' => $discountPercent,
+                'category_id' => $category->id,
+                'subcategory_id' => $subCategory ? $subCategory->id : null,
+                'collection_id' => $collection ? $collection->id : null,
+                'brand_id' => $brand ? $brand->id : null,
+                'store_id' => $store ? $store->id : null,
+                'image' => $this->resolveMainImage($row, $sku),
+                'slug' => $slug,
+                'stock' => $stockUnlimited ? 0 : $this->getNumericValue($row, 'stock', 10),
+                'stock_unlimited' => $stockUnlimited,
+                'weight' => $this->getNumericValue($row, 'peso', 0),
+                'pdf' => $this->getPdfFile($sku),
+                // Nuevos campos booleanos
+                'is_new' => $this->getBooleanValue($row, 'es_nuevo', false),
+                'offering' => $this->getBooleanValue($row, 'en_oferta', false),
+                'recommended' => $this->getBooleanValue($row, 'recomendado', false),
+                'featured' => $this->getBooleanValue($row, 'destacado', false),
+                'visible' => $this->getBooleanValue($row, 'visible', true),
+                'status' => $this->getBooleanValue($row, 'estado', true),
+                'is_attributes' => $this->hasField($row, 'atributos'),
+                'is_specifications' => $this->hasField($row, 'especificaciones_principales') || $this->hasField($row, 'especificaciones_generales') || $this->hasField($row, 'especificaciones_tecnicas'),
+                'is_tags' => $this->hasField($row, 'promociones'),
+                'is_master' => $this->getBooleanValue($row, 'es_maestro', false),
+            ];
+
+            // Debug: verificar datos antes de crear el item
+            Log::info("Datos del item antes de crear:", [
+                'sku' => $sku,
+                'weight_en_itemData' => $itemData['weight'],
+                'itemData_completo' => $itemData
+            ]);
+
+            // Agregar campos opcionales si existen
+            if ($this->hasField($row, 'color')) {
+                $itemData['color'] = $this->getFieldValue($row, 'color');
+            }
+
+            if ($this->hasField($row, 'talla')) {
+                $itemData['size'] = $this->getFieldValue($row, 'talla');
+            }
+
+            // 7️⃣ Crear/Actualizar el producto según el modo
+            if ($this->importMode === 'add_update') {
+                // Modo: Agregar/Actualizar - Buscar por SKU
+                $result = $this->createOrUpdateItem($itemData, $sku);
+                $item = $result['item'];
+                $shouldProcessImages = $result['shouldProcessNewImages'];
+            } else {
+                // Modo: Reset - Crear siempre nuevo
+                $item = Item::create($itemData);
+                $shouldProcessImages = true;
+            }
+
+            if ($item) {
+                // 7.5️⃣ Guardar características (item_features) si existen
+                $this->saveFeaturesIfExists($item, $row);
+
+                // 8️⃣ Guardar especificaciones si existen
+                $this->saveSpecificationsIfExists($item, $row);
+
+                // 9️⃣ Guardar imágenes de galería (solo si hay nuevas imágenes o es un item nuevo)
+                if ($shouldProcessImages) {
+                    $this->saveGalleryImages($item, $row, 'sku');
+                }
+
+                // 9.5️⃣ Guardar imágenes de galería desde URLs si existen
+                if ($shouldProcessImages) {
+                    $this->saveGalleryImagesFromExcel($item, $row);
+                }
+
+                // 🔟 Asociar regla de descuento si existe
+                $this->associateDiscountRule($item, $row);
+
+                // 1️⃣1️⃣ Asociar promociones/tags si existen
+                $this->associatePromotions($item, $row);
+
+                // 12️⃣ Asociar atributos dinámicos si existen
+                $this->associateAttributes($item, $row);
+            } else {
+                throw new Exception("No se pudo crear el producto con SKU: {$sku}");
+            }
+
+            return $item;
+        } catch (\Exception $e) {
+            $rowSku = $this->getFieldValue($row, 'sku');
+            $rowName = $this->getFieldValue($row, 'nombre_producto');
+            
+            // Truncar para evitar textos gigantes en el mensaje si el mapeo está cruzado
+            $displaySku = $rowSku ? (strlen($rowSku) > 35 ? substr($rowSku, 0, 35) . '...' : $rowSku) : null;
+            $displayName = $rowName ? (strlen($rowName) > 35 ? substr($rowName, 0, 35) . '...' : $rowName) : null;
+
+            // Formatear un mensaje de error súper amigable para el cliente
+            if ($e->getMessage() === 'SKU y nombre del producto son requeridos') {
+                if (empty($rowSku) && empty($rowName)) {
+                    $userMessage = "Fila {$this->rowCount}: No se pudo importar porque el SKU y el Nombre del producto están vacíos.";
+                } elseif (empty($rowSku)) {
+                    $userMessage = "Fila {$this->rowCount} (Nombre: '{$displayName}'): Falta el SKU del producto, el cual es obligatorio.";
+                } else {
+                    $userMessage = "Fila {$this->rowCount} (SKU: '{$displaySku}'): Falta el Nombre del producto, el cual es obligatorio.";
+                }
+            } else {
+                $userMessage = "Fila {$this->rowCount}" . 
+                    ($displaySku ? " (SKU: '{$displaySku}')" : "") . 
+                    ": No se pudo procesar debido a: " . $e->getMessage();
+            }
+
+            $this->addError($userMessage);
+
+            // Registro técnico en logs de Laravel para el desarrollador (con archivo y línea exacta)
+            $technicalMessage = sprintf(
+                "Error al procesar fila con SKU '%s' en fila %d: %s (Línea: %s, Archivo: %s)",
+                $rowSku ?? 'sin SKU',
+                $this->rowCount,
+                $e->getMessage(),
+                $e->getLine(),
+                basename($e->getFile())
+            );
+
+            Log::error($technicalMessage, [
+                'row_data' => $row,
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return null;
+        }
+    }
+
+    /**
+     * Obtener valor numérico de un campo
+     */
+    private function getNumericValue(array $row, string $fieldKey, $default = null)
+    {
+        $value = $this->getFieldValue($row, $fieldKey);
+
+        if (is_null($value) || $value === '') {
+            return $default;
+        }
+
+        // Limpiar el valor (remover espacios, comas, etc.)
+        $cleanValue = preg_replace('/[^\d.-]/', '', $value);
+
+        return is_numeric($cleanValue) ? (float)$cleanValue : $default;
+    }
+
+    /**
+     * Obtener valor booleano de un campo
+     */
+    private function getBooleanValue(array $row, string $fieldKey, $default = false): bool
+    {
+        $value = $this->getFieldValue($row, $fieldKey);
+
+        if (is_null($value) || $value === '') {
+            return $default;
+        }
+
+        $value = strtolower(trim($value));
+
+        // Valores que se consideran true
+        $trueValues = ['1', 'true', 'verdadero', 'si', 'sí', 'yes', 'y', 'activo', 'active'];
+        // Valores que se consideran false
+        $falseValues = ['0', 'false', 'falso', 'no', 'n', 'inactivo', 'inactive'];
+
+        if (in_array($value, $trueValues)) {
+            return true;
+        }
+
+        if (in_array($value, $falseValues)) {
+            return false;
+        }
+
+        return $default;
+    }
+
+    /**
+     * Calcular precio final
+     */
+    private function calculateFinalPrice($precio, $descuento): float
+    {
+        if ($descuento && $descuento > 0 && $descuento < $precio) {
+            return $descuento;
+        }
+
+        return $precio ?? 0;
+    }
+
+    /**
+     * Calcular porcentaje de descuento
+     */
+    private function calculateDiscountPercent($precio, $descuento): int
+    {
+        if ($descuento && $descuento > 0 && $precio && $precio > 0 && $descuento < $precio) {
+            return round((100 - ($descuento / $precio) * 100));
+        }
+
+        return 0;
+    }
+
+    /**
+     * Generar slug único para el producto
+     */
+    private function generateUniqueSlug(string $nombre, ?string $color = null, ?string $talla = null, ?string $sku = null): string
+    {
+        // Si estamos en add_update y el item ya existe con este SKU, conservar su slug actual
+        if ($sku && $this->importMode === 'add_update') {
+            $existingItem = Item::where('sku', $sku)->first();
+            if ($existingItem && $existingItem->slug) {
+                return $existingItem->slug;
+            }
+        }
+
+        $baseSlug = Str::slug($nombre . ($color ? '-' . $color : '') . '-' . ($talla ? '-' . $talla : ''));
+        $slug = $baseSlug;
+
+        $counter = 1;
+        while (Item::where('slug', $slug)->exists()) {
+            $slug = $baseSlug . '-' . ($counter > 1 ? $counter : Crypto::short());
+            $counter++;
+        }
+
+        return $slug;
+    }
+
+    /**
+     * Guardar características simples (item_features)
+     */
+    private function saveFeaturesIfExists(Item $item, array $row): void
+    {
+        if (!$this->hasField($row, 'caracteristicas')) {
+            return;
+        }
+
+        $featuresStr = $this->getFieldValue($row, 'caracteristicas');
+        if (empty($featuresStr) || !is_string($featuresStr)) {
+            return;
+        }
+
+        // Eliminar características previas del producto para evitar duplicados al reimportar
+        ItemFeature::where('item_id', $item->id)->delete();
+
+        $featuresArray = explode(',', $featuresStr);
+        foreach ($featuresArray as $featureText) {
+            $featureText = trim($featureText);
+            if (!empty($featureText)) {
+                ItemFeature::create([
+                    'item_id' => $item->id,
+                    'feature' => $featureText
+                ]);
+            }
+        }
+    }
+
+    /**
+     * Guardar especificaciones si existen en la fila
+     */
+    private function saveSpecificationsIfExists(Item $item, array $row): void
+    {
+        // Especificaciones principales
+        if ($this->hasField($row, 'especificaciones_principales')) {
+            $specs = $this->getFieldValue($row, 'especificaciones_principales');
+            $this->saveSpecifications($item, $specs, 'principal');
+        }
+
+        // Especificaciones generales
+        if ($this->hasField($row, 'especificaciones_generales')) {
+            $specs = $this->getFieldValue($row, 'especificaciones_generales');
+            $this->saveSpecifications($item, $specs, 'general');
+        }
+
+        // Especificaciones técnicas
+        if ($this->hasField($row, 'especificaciones_tecnicas')) {
+            $specs = $this->getFieldValue($row, 'especificaciones_tecnicas');
+            $this->saveSpecificationsTecnicas($item, $specs, 'tecnica');
+        }
+
+        // Especificaciones con iconos
+        if ($this->hasField($row, 'especificaciones_iconos')) {
+            $specs = $this->getFieldValue($row, 'especificaciones_iconos');
+            $this->saveSpecificationsIcon($item, $specs, 'icono');
+        }
+    }
+
+    /**
+     * Guardar especificaciones principales y generales
+     */
+    private function saveSpecifications(Item $item, ?string $specs, string $type): void
+    {
+        if (empty($specs) || !is_string($specs)) {
+            return;
+        }
+
+        $specsArray = explode(',', $specs);
+        foreach ($specsArray as $spec) {
+            $spec = trim($spec);
+            if (empty($spec)) {
+                continue;
+            }
+
+            if ($type === 'principal') {
+                $parts = explode(':', $spec, 2);
+                if (count($parts) == 2) {
+                    $title = trim($parts[0]);
+                    $description = trim($parts[1]);
+                } else {
+                    $title = $spec;
+                    $description = $spec;
+                }
+                ItemSpecification::create([
+                    'item_id' => $item->id,
+                    'type' => 'principal',
+                    'title' => $title,
+                    'description' => $description,
+                ]);
+            } else {
+                $parts = explode(':', $spec, 2);
+                if (count($parts) == 2) {
+                    $title = trim($parts[0]);
+                    $description = trim($parts[1]);
+                    ItemSpecification::create([
+                        'item_id' => $item->id,
+                        'type' => $type,
+                        'title' => $title,
+                        'description' => $description,
+                    ]);
+                } else {
+                    ItemSpecification::create([
+                        'item_id' => $item->id,
+                        'type' => $type,
+                        'title' => '',
+                        'description' => $spec,
+                    ]);
+                }
+            }
+        }
+    }
+
+    /**
+     * Guardar especificaciones técnicas (formato especial)
+     */
+    private function saveSpecificationsTecnicas(Item $item, ?string $specs, string $type): void
+    {
+        if (empty($specs)) {
+            return;
+        }
+
+        // Formato: "titulo1,descripcion1/titulo2,descripcion2"
+        $rows = explode('/', $specs);
+        foreach ($rows as $row) {
+            $parts = explode(':', $row, 2);
+            if (count($parts) == 2) {
+                $title = trim($parts[0]);
+                $description = trim($parts[1]);
+            } else {
+                // Intentar con coma como separador
+                $parts = explode(',', $row, 2);
+                if (count($parts) == 2) {
+                    $title = trim($parts[0]);
+                    $description = trim($parts[1]);
+                } else {
+                    continue;
+                }
+            }
+
+            if (!empty($title) && !empty($description)) {
+                ItemSpecification::create([
+                    'item_id' => $item->id,
+                    'type' => $type,
+                    'title' => $title,
+                    'description' => $description,
+                ]);
+            }
+        }
+    }
+
+
+    private function saveSpecificationsIcon(Item $item, ?string $specs, string $type): void
+    {
+        if (empty($specs) || !is_string($specs)) {
+            return;
+        }
+
+        $specsArray = explode(',', $specs);
+        foreach ($specsArray as $spec) {
+            $spec = trim($spec);
+            if (empty($spec)) {
+                continue;
+            }
+
+            if ($type === 'icono') {
+                ItemSpecification::create([
+                    'item_id' => $item->id,
+                    'type' => $type,
+                    'title' => '',
+                    'description' => $spec,
+                ]);
+            } else {
+                $parts = explode(':', $spec, 2);
+                if (count($parts) == 2) {
+                    $title = trim($parts[0]);
+                    $description = trim($parts[1]);
+                    ItemSpecification::create([
+                        'item_id' => $item->id,
+                        'type' => $type,
+                        'title' => $title,
+                        'description' => $description,
+                    ]);
+                }
+            }
+        }
+    }
+
+    /**
+     * Obtener imagen principal del producto
+     */
+
+    private function getMainImage(array $row, string $format): ?string
+    {
+        if ($format === 'agrupador') {
+            $codigoagrupador = $this->getFieldValue($row, 'agrupador');
+            $color = $this->getFieldValue($row, 'color');
+            $images = $this->getColorNumberImages($codigoagrupador, $color);
+        } else {
+            $sku = $this->getFieldValue($row, 'sku');
+            $images = $this->getSkuBasedImages($sku);
+        }
+
+        return $images[0] ?? null;
+    }
+
+    // private function getMainImage(string $sku): ?string
+    // {
+    //     $extensions = ['png', 'jpg', 'jpeg', 'webp'];
+        
+    //     // Buscar imagen principal (sku.ext)
+    //     foreach ($extensions as $ext) {
+    //         $path = "images/item/{$sku}.{$ext}";
+    //         if (Storage::exists($path)) {
+    //             return "{$sku}.{$ext}";
+    //         }
+    //     }
+
+    //     // Buscar imagen con índice (sku_1.ext)
+    //     foreach ($extensions as $ext) {
+    //         $path = "images/item/{$sku}_1.{$ext}";
+    //         if (Storage::exists($path)) {
+    //             return "{$sku}_1.{$ext}";
+    //         }
+    //     }
+        
+    //     return null;
+    // }
+
+
+
+    /**
+     * Guardar imágenes de galería
+     */
+    private function saveGalleryImages(Item $item, array $row, string $format): void
+    {
+        if ($format === 'agrupador') {
+            $codigoagrupador = $this->getFieldValue($row, 'agrupador');
+            $color = $this->getFieldValue($row, 'color');
+
+            if (!$codigoagrupador || !$color) {
+                $item->update(['visible' => false]);
+                return;
+            }
+
+            $this->saveColorNumberImages($item, $codigoagrupador, $color);
+        } else {
+            $sku = $this->getFieldValue($row, 'sku');
+            $this->saveSkuBasedImages($item, $sku);
+        }
+    }
+
+    // Método para formato codigoagrupador_color_numero
+    private function saveColorNumberImages(Item $item, string $codigoagrupador, string $color): void
+    {
+        $images = $this->getColorNumberImages($codigoagrupador, $color);
+
+        if (empty($images)) {
+            // Solo ocultar si no tiene una imagen principal asignada previamente
+            if (empty($item->image)) {
+                $item->update(['visible' => false]);
+            }
+            return;
+        }
+
+        $item->update(['image' => $images[0]]);
+
+        if (count($images) > 1) {
+            foreach (array_slice($images, 1) as $image) {
+                ItemImage::create([
+                    'item_id' => $item->id,
+                    'url' => $image,
+                ]);
+            }
+        }
+    }
+
+
+    private function saveSkuBasedImages(Item $item, string $sku): void
+    {
+        $images = $this->getSkuBasedImages($sku);
+
+        if (empty($images)) {
+            // Solo ocultar si no tiene una imagen principal asignada previamente
+            if (empty($item->image)) {
+                $item->update(['visible' => false]);
+            }
+            return;
+        }
+
+        $item->update(['image' => $images[0]]);
+
+        if (count($images) > 1) {
+            foreach (array_slice($images, 1) as $image) {
+                ItemImage::create([
+                    'item_id' => $item->id,
+                    'url' => $image,
+                ]);
+            }
+        }
+    }
+
+    /**
+     * Obtener imágenes basadas en el formato codigoagrupador_color_numero
+     */
+    private function getColorNumberImages(string $codigoagrupador, string $color): array
+    {
+        $images = [];
+        $basePath = "images/item/";
+        $extensions = ['jpg', 'jpeg', 'png', 'webp'];
+
+        // Imagen principal: codigoagrupador_color.ext
+        $mainImageName = "{$codigoagrupador}_{$color}";
+        foreach ($extensions as $ext) {
+            if (Storage::exists("{$basePath}{$mainImageName}.{$ext}")) {
+                $images[] = "{$mainImageName}.{$ext}";
+                break;
+            }
+        }
+
+        // Imágenes de galería: codigoagrupador_color_1.ext, etc.
+        $i = 1;
+        while (true) {
+            $found = false;
+            $galleryImageName = "{$codigoagrupador}_{$color}_{$i}";
+
+            foreach ($extensions as $ext) {
+                if (Storage::exists("{$basePath}{$galleryImageName}.{$ext}")) {
+                    $images[] = "{$galleryImageName}.{$ext}";
+                    $found = true;
+                    break;
+                }
+            }
+
+            if (!$found) break;
+            $i++;
+        }
+
+        return $images;
+    }
+
+    /**
+     * Obtener imágenes basadas en SKU
+     */
+    private function getSkuBasedImages(string $sku): array
+    {
+        // Retornar del caché si ya se buscó este SKU en la misma importación
+        if (isset($this->skuImagesCache[$sku])) {
+            return $this->skuImagesCache[$sku];
+        }
+
+        $images = [];
+        $basePath = "images/item/";
+        $extensions = ['jpg', 'jpeg', 'png', 'webp'];
+
+        // Imagen principal: sku.ext
+        foreach ($extensions as $ext) {
+            if (Storage::exists("{$basePath}{$sku}.{$ext}")) {
+                $images[] = "{$sku}.{$ext}";
+                break;
+            }
+        }
+
+        // Buscar usando glob de manera ultra-rápida en el sistema de archivos
+        $dir = storage_path('app/images/item');
+        if (is_dir($dir)) {
+            $pattern = $dir . DIRECTORY_SEPARATOR . $sku . '*';
+            $matchingFiles = glob($pattern);
+            if (is_array($matchingFiles)) {
+                foreach ($matchingFiles as $file) {
+                    $basename = basename($file);
+                    if (!in_array($basename, $images)) {
+                        $images[] = $basename;
+                    }
+                }
+            }
+        }
+
+        $this->skuImagesCache[$sku] = $images;
+        return $images;
+    }
+    
+
+    // private function saveGalleryImages(Item $item, string $sku): void
+    // {
+    //     $extensions = ['png', 'jpg', 'jpeg', 'webp'];
+        
+    //     // Primero verificar si existe la imagen principal (sku.extension)
+    //     $hasMainImage = false;
+    //     foreach ($extensions as $ext) {
+    //         if (Storage::exists("images/item/{$sku}.{$ext}")) {
+    //             $hasMainImage = true;
+    //             break;
+    //         }
+    //     }
+        
+    //     // Determinar el índice inicial
+    //     $startIndex = $hasMainImage ? 1 : 2;
+    //     $index = $startIndex;
+        
+    //     while (true) {
+    //         $found = false;
+            
+    //         // Probar ambos formatos: _01 y _1
+    //         $formats = [
+    //             sprintf("_%02d", $index), // Formato _01, _02, etc.
+    //             "_".$index                // Formato _1, _2, etc.
+    //         ];
+            
+    //         foreach ($formats as $suffix) {
+    //             foreach ($extensions as $ext) {
+    //                 $filename = "{$sku}{$suffix}.{$ext}";
+    //                 $path = "images/item/{$filename}";
+                    
+    //                 if (Storage::exists($path)) {
+    //                     ItemImage::create([
+    //                         'item_id' => $item->id,
+    //                         'url' => $filename,
+    //                     ]);
+    //                     $found = true;
+    //                     break 2; // Salir de ambos foreachs
+    //                 }
+    //             }
+    //         }
+
+    //         if (!$found) {
+    //             break;
+    //         }
+    //         $index++;
+    //     }
+    // }
+    
+
+    // private function saveGalleryImages(Item $item, string $sku): void
+    // {
+    //     $extensions = ['png', 'jpg', 'jpeg', 'webp'];
+    //     $index = 2; // Empezar desde _2 ya que _1 puede ser la imagen principal
+
+    //     while (true) {
+    //         $found = false;
+            
+    //         foreach ($extensions as $ext) {
+    //             $filename = "{$sku}_{$index}.{$ext}";
+    //             $path = "images/item/{$filename}";
+                
+    //             if (Storage::exists($path)) {
+    //                 ItemImage::create([
+    //                     'item_id' => $item->id,
+    //                     'url' => $filename,
+    //                 ]);
+    //                 $found = true;
+    //                 break;
+    //             }
+    //         }
+
+    //         if (!$found) {
+    //             break;
+    //         }
+    //         $index++;
+    //     }
+    // }
+
+    /**
+     * Crear o actualizar un item basado en el SKU
+     * 
+     * @return array ['item' => Item, 'shouldProcessNewImages' => bool]
+     */
+    private function createOrUpdateItem(array $itemData, string $sku): array
+    {
+        // Buscar el item existente por SKU
+        $existingItem = Item::where('sku', $sku)->first();
+
+        if ($existingItem) {
+            // Actualizar el item existente
+            Log::info("Actualizando producto existente", [
+                'sku' => $sku,
+                'item_id' => $existingItem->id
+            ]);
+
+            // Verificar si hay nuevas imágenes disponibles para importar
+            $newImages = $this->getSkuBasedImages($sku);
+            $hasNewImages = !empty($newImages);
+
+            // Solo eliminar especificaciones (siempre se reemplazan del Excel)
+            ItemSpecification::where('item_id', $existingItem->id)->delete();
+
+            // Solo eliminar imágenes de galería si hay nuevas imágenes para reemplazar
+            if ($hasNewImages) {
+                ItemImage::where('item_id', $existingItem->id)->delete();
+                Log::info("Reemplazando imágenes del producto", [
+                    'sku' => $sku,
+                    'nuevas_imagenes' => count($newImages)
+                ]);
+            } else {
+                // Preservar la imagen principal existente si no hay nuevas imágenes
+                if ($existingItem->image) {
+                    $itemData['image'] = $existingItem->image;
+                }
+                Log::info("Preservando imágenes existentes del producto (no hay nuevas imágenes)", [
+                    'sku' => $sku,
+                    'imagen_preservada' => $existingItem->image
+                ]);
+            }
+
+            // Desasociar tags antiguos
+            $existingItem->tags()->detach();
+
+            // Actualizar los datos del item
+            $existingItem->update($itemData);
+
+            return [
+                'item' => $existingItem,
+                'shouldProcessNewImages' => $hasNewImages
+            ];
+        } else {
+            // Crear nuevo item
+            Log::info("Creando nuevo producto", [
+                'sku' => $sku
+            ]);
+
+            $newItem = Item::create($itemData);
+
+            return [
+                'item' => $newItem,
+                'shouldProcessNewImages' => true
+            ];
+        }
+    }
+
+    /**
+     * Verificar si una fila está vacía
+     */
+    private function isRowEmpty(array $row): bool
+    {
+        // Si no hay SKU, la fila está vacía
+        if (!$this->hasField($row, 'sku')) {
+            return true;
+        }
+
+        // Verificar si todas las columnas están vacías
+        foreach ($row as $value) {
+            if (!is_null($value) && trim(strval($value)) !== '') {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Manejo de errores
+     */
+    public function onError(Throwable $e)
+    {
+        $this->addError("Error general: " . $e->getMessage());
+    }
+
+    public function onFailure(Failure ...$failures)
+    {
+        foreach ($failures as $failure) {
+            $this->addError(sprintf(
+                "Fila %d, Columna '%s': %s",
+                $failure->row(),
+                $failure->attribute(),
+                implode(', ', $failure->errors())
+            ));
+        }
+    }
+
+    public function getErrors(): array
+    {
+        return $this->errors;
+    }
+
+    private function addError(string $message): void
+    {
+        $this->errors[] = $message;
+    }
+
+    /**
+     * Configurar mapeos de campos personalizados
+     */
+    public function setFieldMappings(array $mappings): self
+    {
+        $this->fieldMappings = array_merge($this->fieldMappings, $mappings);
+        return $this;
+    }
+
+    /**
+     * Obtener mapeos de campos actuales
+     */
+    public function getFieldMappings(): array
+    {
+        return $this->fieldMappings;
+    }
+
+    /**
+     * Obtener archivo PDF del producto basado en el SKU
+     */
+    private function getPdfFile(string $sku): ?string
+    {
+        $path = "images/item/{$sku}.pdf";
+
+        if (Storage::exists($path)) {
+            return "{$sku}.pdf";
+        }
+
+        return null;
+    }
+
+    /**
+     * Asociar regla de descuento al producto (soporta múltiples reglas separadas por coma)
+     */
+    private function associateDiscountRule(Item $item, array $row): void
+    {
+        if (!$this->hasField($row, 'regla_descuento')) {
+            return;
+        }
+
+        $discountRuleStr = $this->getFieldValue($row, 'regla_descuento');
+        if (empty($discountRuleStr)) {
+            return;
+        }
+
+        $ruleNames = explode(',', $discountRuleStr);
+
+        foreach ($ruleNames as $discountRuleName) {
+            $discountRuleName = trim($discountRuleName);
+            if (empty($discountRuleName)) {
+                continue;
+            }
+
+            // Buscar la regla de descuento por nombre exacto primero, luego con LIKE
+            $discountRule = DiscountRule::where('name', $discountRuleName)->first();
+
+            if (!$discountRule) {
+                $discountRule = DiscountRule::where('name', 'like', "%{$discountRuleName}%")
+                    ->orWhere('description', 'like', "%{$discountRuleName}%")
+                    ->first();
+            }
+
+            if (!$discountRule) {
+                // Solo crear nueva regla si no existe ninguna coincidencia
+                $ruleType = 'quantity_discount';
+                $defaultConfig = $this->getDefaultRuleConfig($ruleType, $item);
+
+                $discountRule = DiscountRule::create([
+                    'name' => $discountRuleName,
+                    'description' => "Regla creada automáticamente desde Excel: {$discountRuleName}",
+                    'active' => true,
+                    'rule_type' => $ruleType,
+                    'priority' => 1,
+                    'starts_at' => now(),
+                    'ends_at' => now()->addMonths(12),
+                    'conditions' => $defaultConfig['conditions'],
+                    'actions' => $defaultConfig['actions']
+                ]);
+
+                Log::info("Nueva regla de descuento creada", [
+                    'rule_name' => $discountRuleName,
+                    'rule_type' => $ruleType,
+                    'rule_id' => $discountRule->id
+                ]);
+            } else {
+                Log::info("Regla de descuento encontrada", [
+                    'rule_name' => $discountRule->name,
+                    'rule_type' => $discountRule->rule_type,
+                    'rule_id' => $discountRule->id
+                ]);
+            }
+
+            // Solo asociar a productos específicos si el tipo de regla lo permite
+            if ($this->canRuleBeAssociatedToProducts($discountRule->rule_type)) {
+                $this->associateRuleToProduct($discountRule, $item);
+            } else {
+                $this->createInformationalTag($discountRule, $item);
+            }
+        }
+    }
+
+    /**
+     * Obtener configuración por defecto según el tipo de regla
+     */
+    private function getDefaultRuleConfig(string $ruleType, Item $item): array
+    {
+        switch ($ruleType) {
+            case 'quantity_discount':
+                return [
+                    'conditions' => [
+                        'min_quantity' => 2,
+                        'product_ids' => [$item->id],
+                        'category_ids' => []
+                    ],
+                    'actions' => [
+                        'discount_type' => 'percentage',
+                        'discount_value' => 10
+                    ]
+                ];
+
+            case 'buy_x_get_y':
+                return [
+                    'conditions' => [
+                        'buy_quantity' => 2,
+                        'product_ids' => [$item->id]
+                    ],
+                    'actions' => [
+                        'get_quantity' => 1,
+                        'discount_type' => 'fixed',
+                        'discount_value' => 0
+                    ]
+                ];
+
+            case 'category_discount':
+                return [
+                    'conditions' => [
+                        'category_ids' => [$item->category_id],
+                        'min_quantity' => 1
+                    ],
+                    'actions' => [
+                        'discount_type' => 'percentage',
+                        'discount_value' => 15
+                    ]
+                ];
+
+            case 'bundle_discount':
+                return [
+                    'conditions' => [
+                        'required_products' => [$item->id],
+                        'min_quantity_each' => 1
+                    ],
+                    'actions' => [
+                        'discount_type' => 'percentage',
+                        'discount_value' => 25
+                    ]
+                ];
+
+            case 'cart_discount':
+            default:
+                return [
+                    'conditions' => [
+                        'min_amount' => 100,
+                        'currency' => 'PEN'
+                    ],
+                    'actions' => [
+                        'discount_type' => 'percentage',
+                        'discount_value' => 10
+                    ]
+                ];
+        }
+    }
+
+    /**
+     * Verificar si el tipo de regla puede ser asociado a productos específicos
+     */
+    private function canRuleBeAssociatedToProducts(string $ruleType): bool
+    {
+        $productSpecificRules = [
+            'quantity_discount',  // Descuento por cantidad de productos específicos
+            'buy_x_get_y',       // Compra X lleva Y de productos específicos
+            'bundle_discount'     // Descuento por paquete de productos específicos
+        ];
+
+        return in_array($ruleType, $productSpecificRules);
+    }
+
+    /**
+     * Asociar regla a producto específico (actualizar conditions)
+     */
+    private function associateRuleToProduct(DiscountRule $discountRule, Item $item): void
+    {
+        try {
+            $conditions = $discountRule->conditions ?? [];
+
+            // Agregar el producto a las condiciones según el tipo de regla
+            switch ($discountRule->rule_type) {
+                case 'quantity_discount':
+                case 'buy_x_get_y':
+                    $productIds = $conditions['product_ids'] ?? [];
+                    if (!in_array($item->id, $productIds)) {
+                        $productIds[] = $item->id;
+                        $conditions['product_ids'] = $productIds;
+                    }
+                    break;
+
+                case 'bundle_discount':
+                    $requiredProducts = $conditions['required_products'] ?? [];
+                    if (!in_array($item->id, $requiredProducts)) {
+                        $requiredProducts[] = $item->id;
+                        $conditions['required_products'] = $requiredProducts;
+                    }
+                    break;
+            }
+
+            // Actualizar las condiciones de la regla
+            $discountRule->update(['conditions' => $conditions]);
+
+            // Crear tag informativo para el producto
+            $this->createInformationalTag($discountRule, $item);
+
+            Log::info("Producto asociado a regla de descuento", [
+                'item_id' => $item->id,
+                'item_sku' => $item->sku,
+                'discount_rule_id' => $discountRule->id,
+                'rule_type' => $discountRule->rule_type,
+                'updated_conditions' => $conditions
+            ]);
+        } catch (Exception $e) {
+            Log::error("Error al asociar producto a regla de descuento: " . $e->getMessage(), [
+                'item_id' => $item->id,
+                'discount_rule_id' => $discountRule->id,
+                'rule_type' => $discountRule->rule_type
+            ]);
+        }
+    }
+
+    /**
+     * Crear tag informativo para identificar productos con reglas
+     */
+    private function createInformationalTag(DiscountRule $discountRule, Item $item): void
+    {
+        try {
+            $ruleTagName = "Regla: {$discountRule->name}";
+            $ruleTag = $this->findOrCreateTag($ruleTagName, 'discount_rule');
+
+            if ($ruleTag) {
+                // Asociar el tag al producto para facilitar búsquedas y reportes
+                if (!$item->tags()->where('tag_id', $ruleTag->id)->exists()) {
+                    $item->tags()->attach($ruleTag->id);
+                }
+            }
+        } catch (Exception $e) {
+            Log::error("Error al crear tag informativo: " . $e->getMessage(), [
+                'item_id' => $item->id,
+                'discount_rule_id' => $discountRule->id
+            ]);
+        }
+    }
+
+    /**
+     * Asociar promociones/tags al producto
+     */
+    private function associatePromotions(Item $item, array $row): void
+    {
+        if (!$this->hasField($row, 'promociones')) {
+            return;
+        }
+
+        $promotions = $this->getFieldValue($row, 'promociones');
+        if (empty($promotions)) {
+            return;
+        }
+
+        // Separar múltiples promociones por coma
+        $promotionsList = explode(',', $promotions);
+
+        foreach ($promotionsList as $promotionName) {
+            $promotionName = trim($promotionName);
+            if (empty($promotionName)) {
+                continue;
+            }
+
+            // Buscar o crear el tag
+            $tag = $this->findOrCreateTag($promotionName, 'item');
+            if (!$tag) {
+                continue;
+            }
+
+            // Asociar el tag al producto usando la tabla pivot item_tags
+            try {
+                // Verificar si ya está asociado para evitar duplicados
+                if (!$item->tags()->where('tag_id', $tag->id)->exists()) {
+                    $item->tags()->attach($tag->id);
+                }
+            } catch (Exception $e) {
+                Log::error("Error al asociar tag: " . $e->getMessage(), [
+                    'item_id' => $item->id,
+                    'tag_id' => $tag->id,
+                    'tag_name' => $promotionName
+                ]);
+            }
+        }
+    }
+
+    /**
+     * Asociar atributos dinámicos
+     */
+    private function associateAttributes(Item $item, array $row): void
+    {
+        $atributosStr = $this->getFieldValue($row, 'atributos');
+        $valoresStr = $this->getFieldValue($row, 'valores');
+
+        if (!$atributosStr || !$valoresStr) {
+            return;
+        }
+
+        $atributos = explode(',', $atributosStr);
+        $valores = explode(',', $valoresStr);
+
+        // Limpiar espacios en blanco
+        $atributos = array_map('trim', $atributos);
+        $valores = array_map('trim', $valores);
+
+        $syncData = [];
+        foreach ($atributos as $index => $attrName) {
+            if (empty($attrName)) continue;
+
+            // El valor correspondiente está en el mismo índice
+            $value = $valores[$index] ?? null;
+            if (is_null($value) || $value === '') continue;
+
+            $attribute = $this->findOrCreateAttribute($attrName, 'text');
+            if (!$attribute) continue;
+
+            $syncData[$attribute->id] = [
+                'value' => $value,
+                'order_index' => $index
+            ];
+        }
+
+        if (!empty($syncData)) {
+            $item->attributes()->sync($syncData);
+        }
+    }
+
+    /**
+     * Resuelve la imagen principal del producto.
+     * Solo si el campo 'imagen' está mapeado explícitamente por el usuario:
+     * - Si es una URL (HTTP/HTTPS), la procesa o recupera del almacenamiento local.
+     * - Si es un nombre de archivo directo (ej: foto.jpg), lo asigna.
+     * Si el campo 'imagen' NO está mapeado (o se seleccionó '-- No Importar --'),
+     * realiza la búsqueda tradicional en almacenamiento local basada en SKU.
+     */
+    private function resolveMainImage(array $row, ?string $sku = null): ?string
+    {
+        if ($this->hasField($row, 'imagen')) {
+            $mainImageUrl = $this->getFieldValue($row, 'imagen');
+
+            if (!empty($mainImageUrl)) {
+                if (str_starts_with($mainImageUrl, 'http://') || str_starts_with($mainImageUrl, 'https://')) {
+                    if ($sku && $this->importMode === 'add_update') {
+                        $existingItem = Item::where('sku', $sku)->first();
+                        if ($existingItem && $existingItem->image && (
+                            Storage::disk('public')->exists("images/item/{$existingItem->image}") ||
+                            file_exists(public_path("storage/images/item/{$existingItem->image}"))
+                        )) {
+                            return $existingItem->image;
+                        }
+                    }
+                    return $this->downloadAndSaveImageFromUrl($mainImageUrl);
+                }
+
+                // Nombre de archivo directo si fue mapeado
+                return $mainImageUrl;
+            }
+        }
+
+        // Si no fue mapeado el campo 'imagen', buscar por SKU tradicional en disco
+        return $this->getMainImage($row, 'sku');
+    }
+
+    /**
+     * Descarga y guarda imágenes para la galería desde las URLs o nombres definidos en el Excel.
+     * Se ejecuta únicamente si el usuario mapeó el campo 'galeria'.
+     */
+    private function saveGalleryImagesFromExcel(Item $item, array $row): void
+    {
+        if (!$this->hasField($row, 'galeria')) {
+            return;
+        }
+
+        $galleryStr = $this->getFieldValue($row, 'galeria');
+        if (empty($galleryStr)) {
+            return;
+        }
+
+        // Si estamos en add_update y ya existen imágenes de galería, no volver a descargarlas
+        if ($this->importMode === 'add_update' && $item->images()->exists()) {
+            return;
+        }
+
+        // Separar múltiples URLs o nombres por comas o saltos de línea
+        $urls = preg_split('/[\n,]+/', $galleryStr);
+        $lastOrder = $item->images()->max('order') ?? 0;
+        $orderIndex = 1;
+
+        foreach ($urls as $url) {
+            $url = trim($url);
+            if (empty($url)) {
+                continue;
+            }
+
+            if (str_starts_with($url, 'http://') || str_starts_with($url, 'https://')) {
+                $filename = $this->downloadAndSaveImageFromUrl($url);
+                if ($filename) {
+                    $item->images()->create([
+                        'url' => $filename,
+                        'order' => $lastOrder + $orderIndex
+                    ]);
+                    $orderIndex++;
+                }
+            } else {
+                // Nombre de archivo directo en galería
+                $item->images()->create([
+                    'url' => $url,
+                    'order' => $lastOrder + $orderIndex
+                ]);
+                $orderIndex++;
+            }
+        }
+    }
+
+    /**
+     * Descarga una imagen desde una URL remota, la optimiza convirtiéndola a WebP
+     * y la guarda en storage utilizando una lógica similar a BasicController::saveImage.
+     */
+    private function downloadAndSaveImageFromUrl(string $url): ?string
+    {
+        try {
+            $url = trim($url);
+            if (empty($url)) {
+                return null;
+            }
+
+            // 1. Verificar si la URL apunta a una imagen local del sistema que ya existe en disco
+            $parsedPath = parse_url($url, PHP_URL_PATH);
+            if ($parsedPath) {
+                $filename = basename($parsedPath);
+                if (!empty($filename)) {
+                    if (Storage::disk('public')->exists("images/item/{$filename}") ||
+                        file_exists(public_path("storage/images/item/{$filename}")) ||
+                        file_exists(storage_path("app/public/images/item/{$filename}")) ||
+                        file_exists(storage_path("app/images/item/{$filename}"))) {
+                        return $filename;
+                    }
+                }
+            }
+
+            // 2. Si no es una URL válida (es solo un nombre de archivo), buscar en disco
+            if (!filter_var($url, FILTER_VALIDATE_URL)) {
+                $filename = basename($url);
+                if (Storage::disk('public')->exists("images/item/{$filename}") ||
+                    file_exists(public_path("storage/images/item/{$filename}")) ||
+                    file_exists(storage_path("app/public/images/item/{$filename}"))) {
+                    return $filename;
+                }
+                return null;
+            }
+
+            // 3. Verificar si la imagen ya fue descargada en este proceso de importación
+            if (isset(self::$downloadCache[$url])) {
+                return self::$downloadCache[$url];
+            }
+
+            // Crear archivo temporal
+            $tempFile = tempnam(sys_get_temp_dir(), 'import_img_');
+            if (!$tempFile) {
+                return null;
+            }
+
+            // Descargar usando cURL con timeout reducido a 5 segundos para evitar bloqueos
+            $ch = curl_init($url);
+            $fp = fopen($tempFile, 'wb');
+            curl_setopt($ch, CURLOPT_FILE, $fp);
+            curl_setopt($ch, CURLOPT_HEADER, 0);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 5);
+            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 3);
+            curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+            curl_exec($ch);
+            curl_close($ch);
+            fclose($fp);
+
+            if (!file_exists($tempFile) || !filesize($tempFile)) {
+                @unlink($tempFile);
+                return null;
+            }
+
+            // Optimizar y convertir a WebP
+            $uuid = Crypto::randomUUID();
+            $imgInfo = @getimagesize($tempFile);
+            if ($imgInfo) {
+                $mime = $imgInfo['mime'];
+                $sourceImage = null;
+                switch ($mime) {
+                    case 'image/jpeg':
+                    case 'image/jpg':
+                        if (function_exists('imagecreatefromjpeg')) {
+                            $sourceImage = @imagecreatefromjpeg($tempFile);
+                        }
+                        break;
+                    case 'image/png':
+                        if (function_exists('imagecreatefrompng')) {
+                            $sourceImage = @imagecreatefrompng($tempFile);
+                            if ($sourceImage) {
+                                imagealphablending($sourceImage, false);
+                                imagesavealpha($sourceImage, true);
+                            }
+                        }
+                        break;
+                    case 'image/webp':
+                        if (function_exists('imagecreatefromwebp')) {
+                            $sourceImage = @imagecreatefromwebp($tempFile);
+                        }
+                        break;
+                }
+
+                if ($sourceImage && function_exists('imagewebp')) {
+                    $webpTempPath = tempnam(sys_get_temp_dir(), 'webp_');
+                    if (@imagewebp($sourceImage, $webpTempPath, 90)) {
+                        $path = "images/item/{$uuid}.webp";
+                        Storage::put($path, file_get_contents($webpTempPath));
+                        @imagedestroy($sourceImage);
+                        @unlink($webpTempPath);
+                        @unlink($tempFile);
+                        
+                        self::$downloadCache[$url] = "{$uuid}.webp";
+                        return "{$uuid}.webp";
+                    }
+                    @imagedestroy($sourceImage);
+                    @unlink($webpTempPath);
+                }
+            }
+
+            // Fallback: guardar archivo original si no se puede convertir
+            $ext = strtolower(pathinfo($url, PATHINFO_EXTENSION));
+            if (empty($ext) || !in_array($ext, ['png', 'jpg', 'jpeg', 'webp', 'gif'])) {
+                $ext = 'png'; // default
+            }
+            $path = "images/item/{$uuid}.{$ext}";
+            Storage::put($path, file_get_contents($tempFile));
+            @unlink($tempFile);
+            
+            $filename = "{$uuid}.{$ext}";
+            self::$downloadCache[$url] = $filename;
+            return $filename;
+
+        } catch (\Exception $e) {
+            Log::error("Error al descargar imagen desde URL {$url}: " . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Limpia y normaliza cadenas de nombres (remueve dos puntos al final, espacios extra, etc.)
+     */
+    private function cleanNameString(?string $name): string
+    {
+        if (is_null($name)) return '';
+        $cleaned = trim($name);
+        // Remover dos puntos, punto y coma, comas sueltas al final
+        $cleaned = rtrim($cleaned, ":;,\t\n\r\0\x0B");
+        // Normalizar múltiples espacios
+        $cleaned = preg_replace('/\s+/', ' ', $cleaned);
+        return trim($cleaned);
+    }
+
+    /**
+     * Busca o crea una categoría de forma segura contra duplicados y case-insensitive
+     */
+    private function findOrCreateCategory(string $rawName): Category
+    {
+        $cleanName = $this->cleanNameString($rawName);
+        $slug = Str::slug($cleanName ?: $rawName);
+        $cacheKey = $slug ?: mb_strtolower($cleanName);
+
+        if (isset($this->categoriesCache[$cacheKey])) {
+            return $this->categoriesCache[$cacheKey];
+        }
+
+        // Buscar por slug, nombre insensible a mayúsculas/minúsculas o nombre exacto
+        $category = Category::where('slug', $slug)
+            ->orWhereRaw('LOWER(TRIM(name)) = ?', [mb_strtolower($cleanName)])
+            ->orWhere('name', $rawName)
+            ->first();
+
+        if (!$category) {
+            if (Category::where('slug', $slug)->exists()) {
+                $slug = $slug . '-' . Crypto::short();
+            }
+
+            $category = Category::create([
+                'name' => $cleanName ?: $rawName,
+                'slug' => $slug,
+                'status' => true
+            ]);
+        } elseif (!$category->status) {
+            $category->status = true;
+            $category->save();
+        }
+
+        $this->categoriesCache[$cacheKey] = $category;
+        return $category;
+    }
+
+    /**
+     * Busca o crea una subcategoría de forma segura contra duplicados
+     */
+    private function findOrCreateSubCategory(string $rawName, string $categoryId): ?SubCategory
+    {
+        $cleanName = $this->cleanNameString($rawName);
+        if (empty($cleanName)) return null;
+
+        $slug = Str::slug($cleanName ?: $rawName);
+        $cacheKey = $slug ?: mb_strtolower($cleanName);
+
+        if (isset($this->subCategoriesCache[$cacheKey])) {
+            $subCategory = $this->subCategoriesCache[$cacheKey];
+        } else {
+            $subCategory = SubCategory::where('slug', $slug)
+                ->orWhereRaw('LOWER(TRIM(name)) = ?', [mb_strtolower($cleanName)])
+                ->orWhere('name', $rawName)
+                ->first();
+
+            if (!$subCategory) {
+                if (SubCategory::where('slug', $slug)->exists()) {
+                    $slug = $slug . '-' . Crypto::short();
+                }
+
+                $subCategory = SubCategory::create([
+                    'name' => $cleanName ?: $rawName,
+                    'slug' => $slug,
+                    'status' => true
+                ]);
+            } elseif (!$subCategory->status) {
+                $subCategory->status = true;
+                $subCategory->save();
+            }
+
+            $this->subCategoriesCache[$cacheKey] = $subCategory;
+        }
+
+        if ($subCategory && $categoryId) {
+            $subCategory->categories()->syncWithoutDetaching([$categoryId]);
+        }
+
+        return $subCategory;
+    }
+
+    /**
+     * Busca o crea una colección de forma segura
+     */
+    private function findOrCreateCollection(string $rawName): ?Collection
+    {
+        $cleanName = $this->cleanNameString($rawName);
+        if (empty($cleanName)) return null;
+
+        $slug = Str::slug($cleanName ?: $rawName);
+        $cacheKey = $slug ?: mb_strtolower($cleanName);
+
+        if (isset($this->collectionsCache[$cacheKey])) {
+            return $this->collectionsCache[$cacheKey];
+        }
+
+        $collection = Collection::where('slug', $slug)
+            ->orWhereRaw('LOWER(TRIM(name)) = ?', [mb_strtolower($cleanName)])
+            ->orWhere('name', $rawName)
+            ->first();
+
+        if (!$collection) {
+            if (Collection::where('slug', $slug)->exists()) {
+                $slug = $slug . '-' . Crypto::short();
+            }
+
+            $collection = Collection::create([
+                'name' => $cleanName ?: $rawName,
+                'slug' => $slug,
+                'status' => true
+            ]);
+        } elseif (!$collection->status) {
+            $collection->status = true;
+            $collection->save();
+        }
+
+        $this->collectionsCache[$cacheKey] = $collection;
+        return $collection;
+    }
+
+    /**
+     * Busca o crea una marca de forma segura
+     */
+    private function findOrCreateBrand(string $rawName): ?Brand
+    {
+        $cleanName = $this->cleanNameString($rawName);
+        if (empty($cleanName)) return null;
+
+        $slug = Str::slug($cleanName ?: $rawName);
+        $cacheKey = $slug ?: mb_strtolower($cleanName);
+
+        if (isset($this->brandsCache[$cacheKey])) {
+            return $this->brandsCache[$cacheKey];
+        }
+
+        $brand = Brand::where('slug', $slug)
+            ->orWhereRaw('LOWER(TRIM(name)) = ?', [mb_strtolower($cleanName)])
+            ->orWhere('name', $rawName)
+            ->first();
+
+        if (!$brand) {
+            if (Brand::where('slug', $slug)->exists()) {
+                $brandSlug = $slug . '-' . Crypto::short();
+            } else {
+                $brandSlug = $slug;
+            }
+
+            $brand = Brand::create([
+                'name' => $cleanName ?: $rawName,
+                'slug' => $brandSlug,
+                'status' => true
+            ]);
+        } elseif (!$brand->status) {
+            $brand->status = true;
+            $brand->save();
+        }
+
+        $this->brandsCache[$cacheKey] = $brand;
+        return $brand;
+    }
+
+    /**
+     * Busca o crea una tienda de forma segura
+     */
+    private function findOrCreateStore(string $rawName): ?Store
+    {
+        $cleanName = $this->cleanNameString($rawName);
+        if (empty($cleanName)) return null;
+
+        $slug = Str::slug($cleanName ?: $rawName);
+        $cacheKey = $slug ?: mb_strtolower($cleanName);
+
+        if (isset($this->storesCache[$cacheKey])) {
+            return $this->storesCache[$cacheKey];
+        }
+
+        $store = Store::where('slug', $slug)
+            ->orWhereRaw('LOWER(TRIM(name)) = ?', [mb_strtolower($cleanName)])
+            ->orWhere('name', $rawName)
+            ->first();
+
+        if (!$store) {
+            if (Store::where('slug', $slug)->exists()) {
+                $slug = $slug . '-' . Crypto::short();
+            }
+
+            $store = Store::create([
+                'name' => $cleanName ?: $rawName,
+                'slug' => $slug,
+                'status' => true
+            ]);
+        } elseif (!$store->status) {
+            $store->status = true;
+            $store->save();
+        }
+
+        $this->storesCache[$cacheKey] = $store;
+        return $store;
+    }
+
+    /**
+     * Busca o crea un tag de forma segura
+     */
+    private function findOrCreateTag(string $rawName, string $tagType = 'item'): ?Tag
+    {
+        $cleanName = $this->cleanNameString($rawName);
+        if (empty($cleanName)) return null;
+
+        $cacheKey = $tagType . '_' . mb_strtolower($cleanName);
+
+        if (isset($this->tagsCache[$cacheKey])) {
+            return $this->tagsCache[$cacheKey];
+        }
+
+        $tag = Tag::whereRaw('LOWER(TRIM(name)) = ?', [mb_strtolower($cleanName)])
+            ->orWhere('name', $rawName)
+            ->first();
+
+        if (!$tag) {
+            $tag = Tag::create([
+                'name' => $cleanName ?: $rawName,
+                'tag_type' => $tagType,
+                'status' => true,
+            ]);
+        }
+
+        $this->tagsCache[$cacheKey] = $tag;
+        return $tag;
+    }
+
+    /**
+     * Busca o crea un atributo de forma segura
+     */
+    private function findOrCreateAttribute(string $rawName, string $type = 'text'): ?\App\Models\Attribute
+    {
+        $cleanName = $this->cleanNameString($rawName);
+        if (empty($cleanName)) return null;
+
+        $slug = Str::slug($cleanName ?: $rawName);
+        $cacheKey = $slug ?: mb_strtolower($cleanName);
+
+        if (isset($this->attributesCache[$cacheKey])) {
+            return $this->attributesCache[$cacheKey];
+        }
+
+        $attribute = \App\Models\Attribute::where('slug', $slug)
+            ->orWhereRaw('LOWER(TRIM(name)) = ?', [mb_strtolower($cleanName)])
+            ->orWhere('name', $rawName)
+            ->first();
+
+        if (!$attribute) {
+            if (\App\Models\Attribute::where('slug', $slug)->exists()) {
+                $slug = $slug . '-' . Crypto::short();
+            }
+
+            $attribute = \App\Models\Attribute::create([
+                'name' => $cleanName ?: $rawName,
+                'slug' => $slug,
+                'type' => $type,
+                'status' => true,
+                'visible' => true
+            ]);
+        }
+
+        $this->attributesCache[$cacheKey] = $attribute;
+        return $attribute;
+    }
+}

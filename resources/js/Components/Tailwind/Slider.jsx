@@ -1,0 +1,186 @@
+import React from "react";
+
+const SliderSimple = React.lazy(() => import("./Sliders/SliderSimple"));
+
+
+const SliderInteractive = React.lazy(
+    () => import("./Sliders/SliderInteractive"),
+);
+const SliderBananaLab = React.lazy(() => import("./Sliders/SliderBananaLab"));
+const SliderBrandsPaani = React.lazy(
+    () => import("./Sliders/SliderBrandsPaani"),
+);
+const SliderJustImage = React.lazy(() => import("./Sliders/SliderJustImage"));
+const SliderFeaturedMakita = React.lazy(
+    () => import("./Sliders/SliderFeaturedMakita"),
+);
+const SliderTwoColumnSwiper = React.lazy(
+    () => import("./Sliders/SliderTwoColumnSwiper"),
+);
+const SliderPideloPe = React.lazy(() => import("./Sliders/SliderPideloPe"));
+const SliderMultivet = React.lazy(() => import("./Sliders/SliderMultivet"));
+const SliderIbergruas = React.lazy(() => import("./Sliders/SliderIbergruas"));
+const SliderProductBannerKatya = React.lazy(
+    () => import("./Sliders/SliderProductBannerKatya"),
+);
+const SliderFirstClass = React.lazy(() => import("./Sliders/SliderFirstClass"));
+const SliderLaPetaca = React.lazy(() => import("./Sliders/SliderLaPetaca"));
+const SliderHostinfinity = React.lazy(
+    () => import("./Sliders/SliderHostinfinity"),
+);
+const SliderHostinfinityV2 = React.lazy(
+    () => import("./Sliders/SliderHostinfinityV2"),
+);
+const SliderPremium = React.lazy(() => import("./Sliders/SliderPremium"));
+const SliderLaPetacaContact = React.lazy(() => import("./Sliders/SliderLaPetacaContact"));
+const SliderFimesac = React.lazy(() => import("./Sliders/SliderFimesac"));
+const SliderNgs = React.lazy(() => import("./Sliders/SliderNgs"));
+const HeroRhino = React.lazy(() => import("./Sliders/HeroRhino"));
+const SliderTwenty = React.lazy(() => import("./Sliders/SliderTwenty"));
+
+
+const Slider = ({ which, data, sliders, generals = [] }) => {
+    const seoSlider = sliders?.find((slide) => (slide.is_seo === true || slide.is_seo === 1) && slide.seo_h1);
+
+    const getSlider = () => {
+        switch (which) {
+            case "SliderPremium":
+                return (
+                    <SliderPremium
+                        items={sliders}
+                        data={data}
+                        generals={generals}
+                    />
+                );
+            case "SliderSimple":
+                return <SliderSimple data={data} items={sliders} />;
+
+
+            case "SliderInteractive":
+                return (
+                    <SliderInteractive
+                        data={data}
+                        items={sliders}
+                        generals={generals}
+                    />
+                );
+            case "SliderBananaLab":
+                return <SliderBananaLab data={data} items={sliders} />;
+            case "SliderJustImage":
+                return <SliderJustImage data={data} items={sliders} />;
+            case "SliderBrandsPaani":
+                return <SliderBrandsPaani data={data} items={sliders} />;
+            case "SliderFeaturedMakita":
+                return <SliderFeaturedMakita data={data} items={sliders} />;
+            case "SliderTwoColumnSwiper":
+                return <SliderTwoColumnSwiper data={data} items={sliders} />;
+            case "SliderPideloPe":
+                return <SliderPideloPe data={data} items={sliders} />;
+            case "SliderMultivet":
+                return (
+                    <SliderMultivet
+                        data={data}
+                        items={sliders}
+                        generals={generals}
+                    />
+                );
+            case "SliderIbergruas":
+                return (
+                    <SliderIbergruas
+                        data={data}
+                        items={sliders}
+                        generals={generals}
+                    />
+                );
+            case "SliderProductBannerKatya":
+                return (
+                    <SliderProductBannerKatya
+                        data={data}
+                        items={sliders}
+                        generals={generals}
+                    />
+                );
+            case "SliderFirstClass":
+                return <SliderFirstClass data={data} sliders={sliders} />;
+            case "SliderLaPetaca":
+                return (
+                    <SliderLaPetaca
+                        items={sliders}
+                        data={data}
+                        generals={generals}
+                    />
+                );
+            case "SliderLaPetacaContact":
+                return (
+                    <SliderLaPetacaContact
+                        items={sliders}
+                        data={data}
+                        generals={generals}
+                    />
+                );
+            case "SliderHostinfinity":
+                return (
+                    <SliderHostinfinity
+                        items={sliders}
+                        data={data}
+                        generals={generals}
+                    />
+                );
+            case "SliderHostinfinityV2":
+                return (
+                    <SliderHostinfinityV2
+                        items={sliders}
+                        data={data}
+                        generals={generals}
+                    />
+                );
+            case "SliderFimesac":
+                return (
+                    <SliderFimesac
+                        items={sliders}
+                        data={data}
+                        generals={generals}
+                    />
+                );
+            case "SliderNgs":
+                return (
+                    <SliderNgs
+                        items={sliders}
+                        data={data}
+                        generals={generals}
+                    />
+                );
+
+            case "HeroRhino":
+                return (
+                    <HeroRhino
+                        items={sliders}
+                        data={data}
+                        generals={generals}
+                    />
+                );
+            case "SliderTwenty":
+                return (
+                    <SliderTwenty
+                        items={sliders}
+                        data={data}
+                        generals={generals}
+                    />
+                );
+            default:
+                return (
+                    <div className="w-full px-[5%] replace-max-w-here p-4 mx-auto">
+                        - No Hay componente <b>{which}</b> -
+                    </div>
+                );
+        }
+    };
+    return (
+        <>
+            {seoSlider && <h1 className="sr-only">{seoSlider.seo_h1}</h1>}
+            {getSlider()}
+        </>
+    );
+};
+
+export default Slider;

@@ -1,0 +1,105 @@
+import React from "react";
+
+const IndicatorSimple = React.lazy(
+    () => import("./Indicators/IndicatorSimple"),
+);
+const IndicatorHuaillys = React.lazy(
+    () => import("./Indicators/IndicatorHuaillys"),
+);
+const IndicatorIbergruas = React.lazy(
+    () => import("./Indicators/IndicatorIbergruas.jsx"),
+);
+const IndicatorLaPetaca = React.lazy(
+    () => import("./Indicators/IndicatorLaPetaca"),
+);
+const IndicatorHostinfinity = React.lazy(
+    () => import("./Indicators/IndicatorHostinfinity"),
+);
+const IndicatorHostinfinityImage = React.lazy(
+    () => import("./Indicators/IndicatorHostinfinityImage"),
+);
+const IndicatorRainstar = React.lazy(
+    () => import("./Indicators/IndicatorRainstar"),
+);
+const IndicatorTwenty = React.lazy(
+    () => import("./Indicators/IndicatorTwenty"),
+);
+const IndicatorFimesac = React.lazy(
+    () => import("./Indicators/IndicatorFimesac"),
+);
+const IndicatorNgs = React.lazy(
+    () => import("./Indicators/IndicatorNgs"),
+);
+const IndicatorRhino = React.lazy(
+    () => import("./Indicators/IndicatorRhino"),
+);
+
+const Indicator = ({ data, which, items, generals }) => {
+    const getIndicator = () => {
+        switch (which) {
+            case "IndicatorRhino":
+                return (
+                    <IndicatorRhino
+                        data={data}
+                        items={items}
+                        generals={generals}
+                    />
+                );
+            case "IndicatorTwenty":
+                return <IndicatorTwenty data={data} items={items} />;
+            case "IndicatorRainstar":
+                return <IndicatorRainstar data={data} items={items} />;
+            case "IndicatorSimple":
+                return <IndicatorSimple data={data} items={items} />;
+
+            case "IndicatorHuaillys":
+                return (
+                    <IndicatorHuaillys
+                        data={data}
+                        items={items}
+                        generals={generals}
+                    />
+                );
+            case "IndicatorIbergruas":
+                return (
+                    <IndicatorIbergruas
+                        data={data}
+                        items={items}
+                        generals={generals}
+                    />
+                );
+            case "IndicatorLaPetaca":
+                return <IndicatorLaPetaca data={data} items={items} />;
+            case "IndicatorHostinfinity":
+                return <IndicatorHostinfinity data={data} items={items} />;
+            case "IndicatorHostinfinityImage":
+                return <IndicatorHostinfinityImage data={data} items={items} />;
+            case "IndicatorFimesac":
+                return (
+                    <IndicatorFimesac
+                        data={data}
+                        items={items}
+                        generals={generals}
+                    />
+                );
+            case "IndicatorNgs":
+                return (
+                    <IndicatorNgs
+                        data={data}
+                        items={items}
+                        generals={generals}
+                    />
+                );
+
+            default:
+                return (
+                    <div className="w-full px-[5%] replace-max-w-here p-4 mx-auto">
+                        - No Hay componente <b>{which}</b> -
+                    </div>
+                );
+        }
+    };
+    return getIndicator();
+};
+
+export default Indicator;

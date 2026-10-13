@@ -1,0 +1,2787 @@
+import { useEffect, useRef, useState } from "react";
+import {
+    ShoppingCart,
+    Store,
+    Home,
+    Phone,
+    CircleUserRound,
+    ChevronDown,
+    CheckSquare,
+    Plus,
+    ChevronUp,
+    CircleCheckIcon,
+    ChevronLeft,
+    Share2,
+    CheckCircle2,
+    ChevronRight,
+    MessageCircle,
+    Truck,
+    X,
+    ZoomIn,
+    FileText,
+    Download,
+} from "lucide-react";
+
+import ItemsRest from "../../../Actions/ItemsRest";
+import { CombosCartRest } from "../../../Actions/CombosCartRest";
+import Swal from "sweetalert2";
+import { Notify } from "sode-extend-react";
+import ProductInfinite from "../Products/ProductInfinite";
+import CartModal from "../Components/CartModal";
+import { motion } from "framer-motion";
+
+import { Navigation, Grid, Pagination } from "swiper/modules";
+import "swiper/css";
+import "swiper/css/navigation";
+import "swiper/css/grid";
+import { Swiper, SwiperSlide } from "swiper/react";
+import ReactModal from "react-modal";
+import HtmlContent from "../../../Utils/HtmlContent";
+import { CurrencySymbol } from "../../../Utils/Number2Currency";
+
+const DocumentDownloadIcon = ({ className = "w-5 h-5" }) => (
+    <svg
+        className={className}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+    >
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <polyline points="14 2 14 8 20 8" />
+        <path d="M12 18v-6" />
+        <path d="m9 15 3 3 3-3" />
+    </svg>
+);
+
+const ProductDetail = ({ item, data, setCart, cart, generals }) => {
+    const itemsRest = new ItemsRest();
+    const combosRest = new CombosCartRest();
+    const [modalOpen, setModalOpen] = useState(false);
+    const [selectedImage, setSelectedImage] = useState({
+        url: item?.image,
+        type: "main",
+    });
+
+    // Estados para la funcionalidad de zoom
+    const [isZoomEnabled, setIsZoomEnabled] = useState(false);
+    const [zoomPosition, setZoomPosition] = useState({ x: 50, y: 50 });
+    const [isDragging, setIsDragging] = useState(false);
+    const [lastMousePosition, setLastMousePosition] = useState({ x: 0, y: 0 });
+    const imageRef = useRef(null);
+
+    const [quantity, setQuantity] = useState(1);
+    const isOutOfStock = !item?.stock_unlimited && (item?.stock <= 0 || !item?.stock);
+
+    const handleChange = (e) => {
+        let value = parseInt(e.target.value, 10);
+        const maxQty = item?.stock_unlimited ? 99 : (item?.stock || 0);
+        if (isNaN(value) || value < 1) value = 1;
+        if (value > maxQty) value = maxQty;
+        setQuantity(value);
+    };
+
+    useEffect(() => {
+        const maxQty = item?.stock_unlimited ? 99 : (item?.stock || 0);
+        if (maxQty <= 0) {
+            setQuantity(0);
+        } else if (quantity > maxQty) {
+            setQuantity(maxQty);
+        } else if (quantity === 0) {
+            setQuantity(1);
+        }
+    }, [item?.id]);
+    /*ESPECIFICACIONES */
+    const [isExpanded, setIsExpanded] = useState(false);
+    const [isSpecificationsExpanded, setIsSpecificationsExpanded] =
+        useState(false);
+
+    // Referencias para medir contenido
+    const descriptionRef = useRef(null);
+    const specificationsRef = useRef(null);
+
+    // Estados para controlar si se necesita "Ver más"
+    const [needsDescriptionExpand, setNeedsDescriptionExpand] = useState(false);
+    const [needsSpecificationsExpand, setNeedsSpecificationsExpand] =
+        useState(false);
+
+    // Estados para modal de políticas de envío
+    const [deliveryPolicyModalOpen, setDeliveryPolicyModalOpen] =
+        useState(false);
+
+    // Estados para modal de tiendas
+    const [storeListModalOpen, setStoreListModalOpen] = useState(false);
+    const [stores, setStores] = useState([]);
+    const [loadingStores, setLoadingStores] = useState(false);
+
+    // Estado para dropdown de PDF
+    const [isPdfDropdownOpen, setIsPdfDropdownOpen] = useState(false);
+
+    const pdfFiles = (() => {
+        if (!item?.pdf) return [];
+        let raw = item.pdf;
+        if (typeof raw === "string") {
+            try {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed)) raw = parsed;
+                else raw = [parsed];
+            } catch (e) {
+                raw = [{ url: raw, name: item?.name || "Ficha Técnica" }];
+            }
+        }
+        if (Array.isArray(raw)) {
+            return raw.filter(Boolean).map((p, idx) => {
+                if (typeof p === "string") {
+                    return { url: p, name: p.split("/").pop() || `Ficha ${idx + 1}` };
+                }
+                return p;
+            });
+        }
+        return [];
+    })();
+
+    const allSpecifications = Array.isArray(item?.specifications) ? item.specifications : [];
+    const mainSpecifications = allSpecifications.filter(
+        (s) => s?.type?.toLowerCase() === "principal" && (s.description || s.title || s.value)
+    );
+    const generalSpecifications = allSpecifications.filter(
+        (s) => s?.type?.toLowerCase() !== "principal" && (s.description || s.title || s.value)
+    );
+    const hasDescription = Boolean(
+        (item?.description && item.description.replace(/<[^>]*>?/gm, "").trim().length > 0) ||
+        (Array.isArray(item?.features) && item.features.length > 0)
+    );
+
+    // Funciones para manejar el zoom de la imagen
+    const handleZoomClick = () => {
+        setIsZoomEnabled(!isZoomEnabled);
+        if (!isZoomEnabled) {
+            // Centrar la imagen cuando se activa el zoom
+            setZoomPosition({ x: 50, y: 50 });
+        }
+        setIsDragging(false);
+    };
+
+    const handleMouseDown = (e) => {
+        if (!isZoomEnabled) return;
+        setIsDragging(true);
+        setLastMousePosition({ x: e.clientX, y: e.clientY });
+        e.preventDefault();
+    };
+
+    const handleMouseMove = (e) => {
+        if (!isZoomEnabled || !imageRef.current) return;
+
+        if (isDragging) {
+            // Modo arrastre: mover el zoom basado en el delta del mouse
+            const deltaX = e.clientX - lastMousePosition.x;
+            const deltaY = e.clientY - lastMousePosition.y;
+
+            setZoomPosition((prev) => {
+                // Ajustar la sensibilidad para movimiento más suave
+                const sensitivity = 0.3; // Reducir para movimiento más suave
+                const newX = Math.max(
+                    0,
+                    Math.min(100, prev.x - deltaX * sensitivity),
+                );
+                const newY = Math.max(
+                    0,
+                    Math.min(100, prev.y - deltaY * sensitivity),
+                );
+                return { x: newX, y: newY };
+            });
+
+            setLastMousePosition({ x: e.clientX, y: e.clientY });
+        } else {
+            // Modo hover: seguir el cursor suavemente cuando no se arrastra
+            const rect = imageRef.current.getBoundingClientRect();
+            const x = ((e.clientX - rect.left) / rect.width) * 100;
+            const y = ((e.clientY - rect.top) / rect.height) * 100;
+
+            const limitedX = Math.max(10, Math.min(90, x)); // Evitar bordes extremos
+            const limitedY = Math.max(10, Math.min(90, y));
+
+            // Interpolación muy suave para el hover
+            setZoomPosition((prev) => ({
+                x: prev.x + (limitedX - prev.x) * 0.1,
+                y: prev.y + (limitedY - prev.y) * 0.1,
+            }));
+        }
+    };
+
+    const handleMouseUp = () => {
+        setIsDragging(false);
+    };
+
+    const handleMouseLeave = () => {
+        setIsDragging(false);
+        // No desactivar el zoom automáticamente, permitir que el usuario lo controle
+    };
+
+    // WhatsApp configuration
+    const phone_whatsapp = generals?.find(
+        (general) => general.correlative === "phone_whatsapp",
+    );
+
+    const numeroWhatsApp = phone_whatsapp?.description;
+    const mensajeWhatsApp = encodeURIComponent(
+        `¡Hola! Tengo dudas sobre este producto: ${item?.name}`,
+    );
+    const linkWhatsApp = `https://wa.me/${numeroWhatsApp}?text=${mensajeWhatsApp}`;
+
+    const handleClickWhatsApp = () => {
+        window.open(linkWhatsApp, "_blank");
+    };
+
+    // Función para cargar las tiendas
+    const loadStores = async () => {
+        setLoadingStores(true);
+        try {
+            const response = await fetch("/api/stores");
+            const result = await response.json();
+            if (result.status) {
+                setStores(result.data || []);
+            }
+        } catch (error) {
+            console.error("Error loading stores:", error);
+            setStores([]);
+        } finally {
+            setLoadingStores(false);
+        }
+    };
+
+    // Función para abrir el modal de tiendas
+    const handleStoreListModal = () => {
+        setStoreListModalOpen(true);
+        if (stores.length === 0) {
+            loadStores();
+        }
+    };
+
+    const onAddClicked = (product) => {
+        if (isOutOfStock) {
+            Swal.fire({
+                title: "Producto Agotado",
+                text: "Este producto se encuentra agotado.",
+                icon: "warning",
+                confirmButtonColor: "#000000"
+            });
+            return;
+        }
+
+        if (!product.stock_unlimited) {
+            const currentStock = product.stock || 0;
+            if (currentStock < quantity) {
+                Swal.fire({
+                    title: "Stock Insuficiente",
+                    text: `No hay suficiente stock disponible. Stock disponible: ${currentStock}`,
+                    icon: "warning",
+                    confirmButtonColor: "#000000"
+                });
+                return;
+            }
+        }
+
+        const newCart = structuredClone(cart);
+        const index = newCart.findIndex((x) => x.id == product?.id);
+        if (index == -1) {
+            newCart.push({ ...product, quantity: quantity });
+        } else {
+            if (!product.stock_unlimited) {
+                const currentStock = product.stock || 0;
+                const newQty = newCart[index].quantity + quantity;
+                if (newQty > currentStock) {
+                    Swal.fire({
+                        title: "Stock Insuficiente",
+                        text: `No puedes agregar más de este producto. Stock total disponible: ${currentStock}. Ya tienes ${newCart[index].quantity} en el carrito.`,
+                        icon: "warning",
+                        confirmButtonColor: "#000000"
+                    });
+                    return;
+                }
+            }
+            newCart[index].quantity += quantity;
+        }
+        setCart(newCart);
+
+        setModalOpen(!modalOpen);
+        setTimeout(() => setModalOpen(false), 3000);
+    };
+
+    const [associatedItems, setAssociatedItems] = useState([]);
+    const [availableCombos, setAvailableCombos] = useState([]);
+    const [relationsItems, setRelationsItems] = useState([]);
+    const inCart = cart?.find((x) => x.id == item?.id);
+
+    useEffect(() => {
+        if (item?.id) {
+            productosRelacionados(item);
+            obtenerCombo(item);
+            loadAvailableCombos(item);
+            handleViewUpdate(item);
+        }
+    }, [item]); // Agregar `item` como dependencia
+
+    // useEffect para verificar si se necesita el botón "Ver más"
+    useEffect(() => {
+        const checkContentHeight = () => {
+            // Verificar descripción
+            if (descriptionRef.current) {
+                const contentHeight = descriptionRef.current.scrollHeight;
+                const maxHeight = 400; // 400px que es nuestra altura máxima
+                setNeedsDescriptionExpand(contentHeight > maxHeight);
+            } else {
+                setNeedsDescriptionExpand(false);
+            }
+
+            // Verificar especificaciones
+            if (specificationsRef.current) {
+                const contentHeight = specificationsRef.current.scrollHeight;
+                const maxHeight = 400; // 400px que es nuestra altura máxima
+                setNeedsSpecificationsExpand(contentHeight > maxHeight);
+            } else {
+                setNeedsSpecificationsExpand(false);
+            }
+        };
+
+        // Verificar después de que el contenido se haya renderizado
+        setTimeout(checkContentHeight, 100);
+
+        // También verificar cuando cambie el tamaño de la ventana
+        window.addEventListener("resize", checkContentHeight);
+
+        return () => {
+            window.removeEventListener("resize", checkContentHeight);
+        };
+    }, [item]); // Ejecutar cuando cambie el item
+    const handleViewUpdate = async (item) => {
+        try {
+            const request = {
+                id: item?.id,
+            };
+            const response = await itemsRest.updateViews(request);
+
+            // Verificar si la respuesta es válida
+            if (!response) {
+                return;
+            }
+        } catch (error) {
+            return;
+        }
+    };
+
+    const loadAvailableCombos = async (item) => {
+        try {
+            // El backend ya filtra por:
+            // - status = 1 (activos)
+            // - visible = true
+            // - is_main_item = 1 (solo si el item actual es el producto principal)
+            const response = await combosRest.getItemCombos(item.id);
+
+            if (response && response.data) {
+                setAvailableCombos(response.data);
+            }
+        } catch (error) {
+            console.error("Error loading combos:", error);
+            setAvailableCombos([]);
+        }
+    };
+
+    const obtenerCombo = async (item) => {
+        try {
+            // Preparar la solicitud
+            const request = {
+                id: item?.id,
+            };
+
+            // Llamar al backend para verificar el combo
+            const response = await itemsRest.verifyCombo(request);
+
+            // Verificar si la respuesta es válida
+            if (!response) {
+                return;
+            }
+
+            // Actualizar el estado con los productos asociados
+            const associated = response[0].associated_items;
+
+            setAssociatedItems(Object.values(associated));
+        } catch (error) {
+            return;
+            // Mostrar un mensaje de error al usuario si es necesario
+        }
+    };
+    const productosRelacionados = async (item) => {
+        try {
+            // Preparar la solicitud
+            const request = {
+                id: item?.id,
+                related_filter: data?.related_filter || 'category',
+                related_limit: data?.related_limit || 10
+            };
+
+            // Llamar al backend para verificar el combo
+            const response = await itemsRest.productsRelations(request);
+
+            // Verificar si la respuesta es válida
+            if (!response) {
+                return;
+            }
+
+            // Actualizar el estado con los productos asociados
+            const relations = response;
+
+            setRelationsItems(Object.values(relations));
+        } catch (error) {
+            return;
+            // Mostrar un mensaje de error al usuario si es necesario
+        }
+    };
+    const addComboToCart = (combo) => {
+        const newCart = structuredClone(cart);
+
+        // Verificar si el combo ya está en el carrito
+        const existingComboIndex = newCart.findIndex(
+            (x) => x.id === combo.id && x.type === "combo",
+        );
+
+        if (existingComboIndex === -1) {
+            // Agregar nuevo combo al carrito
+            newCart.push({
+                ...combo,
+                type: "combo",
+                quantity: 1,
+                image: combo?.image,
+                final_price: combo?.final_price || combo?.price,
+                price: combo?.price,
+                discount: combo?.discount || 0,
+                discount_percent: combo?.discount_percent || 0,
+            });
+        } else {
+            // Incrementar cantidad del combo existente
+            newCart[existingComboIndex].quantity++;
+        }
+        setCart(newCart);
+
+        /*   Swal.fire({
+               title: "Producto agregado",
+               text: `Se agregó ${product?.name} al carrito`,
+               icon: "success",
+               timer: 1500,
+           });*/
+        setModalOpen(!modalOpen);
+        setTimeout(() => setModalOpen(false), 3000);
+    };
+
+    const total = associatedItems.reduce(
+        (sum, product) => sum + parseFloat(product?.final_price),
+        0,
+    );
+
+    const comboTotal = availableCombos.reduce(
+        (sum, combo) => sum + parseFloat(combo?.price || 0),
+        0,
+    );
+    const [expandedSpecificationMain, setExpanded] = useState(false);
+
+    const addAssociatedItems = () => {
+        setCart((prevCart) => {
+            const newCart = structuredClone(prevCart); // Clona el estado anterior
+
+            [...associatedItems, item].forEach((product) => {
+                const index = newCart.findIndex((x) => x.id === product?.id);
+                if (index === -1) {
+                    newCart.push({ ...product, quantity: quantity });
+                } else {
+                    newCart[index].quantity++;
+                }
+            });
+
+            return newCart; // Devuelve el nuevo estado acumulado
+        });
+        Notify.add({
+            icon: "/assets/resources/icon.png",
+            title: "Carrito de Compras",
+            body: "Se agregaron con éxito los productos",
+        });
+    };
+
+    // Swiper Refs
+    const mainSwiperRef = useRef(null);
+    const thumbSwiperRef = useRef(null);
+    const navigationPrevRef = useRef(null);
+    const navigationNextRef = useRef(null);
+
+    // useEffect para manejar eventos globales del mouse (para el drag)
+    useEffect(() => {
+        const handleGlobalMouseUp = () => {
+            setIsDragging(false);
+        };
+
+        const handleGlobalMouseMove = (e) => {
+            if (isDragging && isZoomEnabled && imageRef.current) {
+                const deltaX = e.clientX - lastMousePosition.x;
+                const deltaY = e.clientY - lastMousePosition.y;
+
+                setZoomPosition((prev) => {
+                    // Sensibilidad ajustada para movimiento más suave y controlado
+                    const sensitivity = 0.25;
+                    const newX = Math.max(
+                        5,
+                        Math.min(95, prev.x - deltaX * sensitivity),
+                    );
+                    const newY = Math.max(
+                        5,
+                        Math.min(95, prev.y - deltaY * sensitivity),
+                    );
+                    return { x: newX, y: newY };
+                });
+
+                setLastMousePosition({ x: e.clientX, y: e.clientY });
+            }
+        };
+
+        if (isDragging) {
+            document.addEventListener("mouseup", handleGlobalMouseUp);
+            document.addEventListener("mousemove", handleGlobalMouseMove);
+        }
+
+        return () => {
+            document.removeEventListener("mouseup", handleGlobalMouseUp);
+            document.removeEventListener("mousemove", handleGlobalMouseMove);
+        };
+    }, [isDragging, isZoomEnabled, lastMousePosition]);
+
+    return (
+        <div className="bg-sections-color">
+            {/* Versión Mobile */}
+            <div
+                id={data?.element_id || null}
+                className="px-primary md:hidden   min-h-screen"
+            >
+                {/* Header Estilo App */}
+                <div className="sticky top-0 bg-white shadow-sm z-20">
+                    <div className="flex items-center p-4 gap-4 border-b">
+                        {/* <button onClick={() => window.history.back()} className="text-gray-600">
+                            <ChevronLeft size={24} />
+                        </button>*/}
+                        <span className="text-lg font-bold flex-1 line-clamp-5">
+                            {item?.name}
+                        </span>
+                    </div>
+                </div>
+
+                {/* Contenido Principal */}
+                <div className="p-4 pb-24">
+                    {/* Carrusel Principal */}
+                    <div className="relative aspect-square mb-4 rounded-2xl overflow-hidden shadow-lg">
+                        <Swiper
+                            ref={mainSwiperRef}
+                            modules={[Navigation, Pagination]}
+                            navigation={{
+                                prevEl: navigationPrevRef.current,
+                                nextEl: navigationNextRef.current,
+                            }}
+                            pagination={{
+                                clickable: true,
+                                renderBullet: (_, className) =>
+                                    `<span class="${className} !w-2 !h-2 !bg-white/50 !mx-1"></span>`,
+                            }}
+                            loop={true}
+                            onSwiper={(swiper) => {
+                                mainSwiperRef.current = swiper;
+                            }}
+                            className="h-full"
+                        >
+                            {[item?.image, ...(item?.images || [])]
+                                .filter(
+                                    (image, index, self) =>
+                                        index ===
+                                        self.findIndex(
+                                            (img) => img?.url === image?.url,
+                                        ),
+                                )
+                                .map((img, i) => (
+                                    <SwiperSlide key={i}>
+                                        <div className="w-full h-full bg-gray-100 flex items-center justify-center">
+                                            <img
+                                                src={`/storage/images/item/${img?.url || img}`}
+                                                alt={`${item?.name || "Imagen del producto"} - Vista ${i + 1}`}
+                                                className="w-full h-full object-cover aspect-square"
+                                                loading="lazy"
+                                                onError={(e) =>
+                                                (e.target.src =
+                                                    "/api/cover/thumbnail/null")
+                                                }
+                                            />
+                                        </div>
+                                    </SwiperSlide>
+                                ))}
+                        </Swiper>
+
+                        {/* Botones de navegación */}
+                        <div className="absolute top-1/2 w-full flex justify-between px-2 transform -translate-y-1/2 z-10">
+                            <button
+                                ref={navigationPrevRef}
+                                aria-label="Anterior imagen"
+                                className="w-8 h-8 flex items-center justify-center rounded-full bg-white/80 shadow-lg hover:scale-110 transition-transform"
+                            >
+                                <ChevronLeft
+                                    className="text-gray-800"
+                                    size={20}
+                                />
+                            </button>
+                            <button
+                                ref={navigationNextRef}
+                                aria-label="Siguiente imagen"
+                                className="w-8 h-8 flex items-center justify-center rounded-full bg-white/80 shadow-lg hover:scale-110 transition-transform"
+                            >
+                                <ChevronRight
+                                    className="text-gray-800"
+                                    size={20}
+                                />
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Sección de Precio */}
+                    <div className="bg-white p-4 rounded-2xl shadow-sm mb-4">
+                        <div className="flex justify-between items-start">
+                            <div>
+                                <div className="text-3xl font-bold customtext-primary">
+                                    {CurrencySymbol()} {item?.final_price}
+                                    {item?.discount > 0 &&
+                                        item?.price > item?.final_price && (
+                                            <span className="ml-2 text-sm line-through text-neutral-light">
+                                                {CurrencySymbol()} {item?.price}
+                                            </span>
+                                        )}
+                                </div>
+                                <div className="text-xs customtext-neutral-light mt-1">
+                                    SKU: {item?.sku}
+                                </div>
+                            </div>
+                            {item?.discount > 0 &&
+                                item?.price > item?.final_price && (
+                                    <div className="bg-secondary customtext-primary px-3 py-1 rounded-full text-sm">
+                                        {Number(item?.discount_percent).toFixed(
+                                            0,
+                                        )}
+                                        % OFF
+                                    </div>
+                                )}
+                        </div>
+                    </div>
+
+                    {/* Selector Cantidad */}
+                    <div className="bg-white p-4 rounded-2xl shadow-sm mb-4">
+                        <div className="flex items-center justify-between">
+                            <span className="font-medium">Cantidad</span>
+                            <div className="flex items-center gap-3">
+                                <button
+                                    onClick={() =>
+                                        setQuantity(Math.max(1, quantity - 1))
+                                    }
+                                    aria-label="Disminuir cantidad"
+                                    className="w-8 h-8 rounded-full bg-secondary customtext-primary flex items-center justify-center"
+                                >
+                                    -
+                                </button>
+                                <span className="w-8 text-center font-medium">
+                                    {quantity}
+                                </span>
+                                <button
+                                    onClick={() =>
+                                        setQuantity(Math.min(10, quantity + 1))
+                                    }
+                                    aria-label="Aumentar cantidad"
+                                    className="w-8 h-8 rounded-full bg-secondary customtext-primary flex items-center justify-center"
+                                >
+                                    +
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Acordeones */}
+                    <div className="space-y-2">
+                        {/* Especificaciones */}
+                        {allSpecifications.length > 0 && (
+                            <div className="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-100">
+                                <div className="border-b border-gray-100">
+                                    <button
+                                        onClick={() =>
+                                            setExpanded(!expandedSpecificationMain)
+                                        }
+                                        aria-label="Mostrar u ocultar especificaciones técnicas"
+                                        className="w-full p-4 flex justify-between items-center"
+                                    >
+                                        <span className="font-semibold text-gray-800 text-sm">
+                                            Especificaciones técnicas
+                                        </span>
+                                        <ChevronDown
+                                            className={`w-4 h-4 customtext-neutral-light transform transition-transform ${expandedSpecificationMain
+                                                ? "rotate-180"
+                                                : ""
+                                                }`}
+                                        />
+                                    </button>
+                                </div>
+                                {expandedSpecificationMain && (
+                                    <div className="p-3">
+                                        {/* Vista Móvil: Arriba y Abajo para evitar scroll horizontal */}
+                                        <div className="block sm:hidden space-y-2">
+                                            {allSpecifications.map((spec, i) => (
+                                                <div
+                                                    key={i}
+                                                    className={`p-3 rounded-lg border border-gray-100 ${i % 2 === 0 ? "bg-[#F7F9FB]" : "bg-white"}`}
+                                                >
+                                                    <span className="block text-[11px] font-semibold customtext-neutral-light  uppercase tracking-wider mb-1">
+                                                        {spec.title || "Característica"}
+                                                    </span>
+                                                    <span className="block text-xs font-normal uppercase customtext-neutral-dark break-words">
+                                                        {spec.description || spec.value || spec.title || "-"}
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        {/* Vista Tablet / Desktop: Tabla tradicional */}
+                                        <div className="hidden sm:block overflow-x-auto">
+                                            <table className="w-full text-left border-collapse">
+                                                <tbody>
+                                                    {allSpecifications.map((spec, i) => (
+                                                        <tr
+                                                            key={i}
+                                                            className={i % 2 === 0 ? "bg-[#F7F9FB]" : "bg-white"}
+                                                        >
+                                                            <td className="py-2.5 px-3 text-xs font-medium customtext-neutral-light tracking-wide w-2/5 align-middle">
+                                                                {spec.title || "Característica"}
+                                                            </td>
+                                                            <td className="py-2.5 px-3 text-xs font-normal customtext-neutral-dark tracking-wide w-3/5 align-middle break-words">
+                                                                {spec.description || spec.value || spec.title || "-"}
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Descripción */}
+                        {hasDescription && (
+                            <div className="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-100">
+                                <div className="border-b border-gray-100">
+                                    <button
+                                        onClick={() => setIsExpanded(!isExpanded)}
+                                        aria-label="Mostrar u ocultar descripción del producto"
+                                        className="w-full p-4 flex justify-between items-center"
+                                    >
+                                        <span className="font-semibold text-gray-800 text-sm">
+                                            Descripción del producto
+                                        </span>
+                                        <ChevronDown
+                                            className={`w-4 h-4 customtext-neutral-light transform transition-transform ${isExpanded ? "rotate-180" : ""
+                                                }`}
+                                        />
+                                    </button>
+                                </div>
+                                {isExpanded && (
+                                    <div className="p-4">
+                                        {item?.description && (
+                                            <div
+                                                dangerouslySetInnerHTML={{
+                                                    __html: item?.description,
+                                                }}
+                                            />
+                                        )}
+                                        {Array.isArray(item?.features) && item.features.length > 0 && (
+                                            <ul className="list-disc pl-5 mt-2">
+                                                {item.features.map((feature, i) => (
+                                                    <li key={i} className="text-sm">
+                                                        {feature.feature || feature}
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Descargables y Manuales (PDF) */}
+                        {pdfFiles.length > 0 && (
+                            <div className="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-100">
+                                <div className="border-b border-gray-100">
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsPdfDropdownOpen(!isPdfDropdownOpen)}
+                                        aria-label="Mostrar u ocultar descargables y manuales PDF"
+                                        className="w-full p-4 flex justify-between items-center"
+                                    >
+                                        <span className="font-semibold text-gray-800 flex items-center gap-2.5 text-sm">
+                                            <DocumentDownloadIcon className="w-5 h-5 customtext-primary flex-shrink-0" />
+                                            Descargables y Manuales
+                                            <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-normal">
+                                                {pdfFiles.length}
+                                            </span>
+                                        </span>
+                                        <ChevronDown
+                                            className={`w-4 h-4 customtext-neutral-light transition-transform duration-200 ${isPdfDropdownOpen ? "rotate-180" : ""}`}
+                                        />
+                                    </button>
+                                </div>
+                                {isPdfDropdownOpen && (
+                                    <div className="p-3 space-y-2 bg-gray-50/50">
+                                        {pdfFiles.map((pdf, i) => (
+                                            <a
+                                                key={i}
+                                                href={`/storage/images/item/${pdf.url || pdf}`}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="w-full p-3 bg-white border border-gray-200 rounded-xl hover:border-primary flex items-center justify-between transition-all group"
+                                            >
+                                                <div className="flex items-center gap-2.5 min-w-0 flex-1 me-2">
+                                                    <DocumentDownloadIcon className="w-5 h-5 customtext-primary flex-shrink-0" />
+                                                    <div className="min-w-0 flex-1">
+                                                        <p className="text-xs md:text-sm font-semibold text-gray-800 truncate group-hover:customtext-primary transition-colors">
+                                                            {pdf.name || (typeof pdf === "string" ? pdf.split("/").pop() : `Documento ${i + 1}`)}
+                                                        </p>
+                                                        <p className="text-[11px] text-neutral-light">Documento PDF</p>
+                                                    </div>
+                                                </div>
+                                                <Download className="w-4 h-4 text-neutral-light group-hover:customtext-primary transition-colors flex-shrink-0" />
+                                            </a>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Complementary Products Mobile */}
+                    {(associatedItems.length > 0 ||
+                        availableCombos.length > 0) && (
+                            <div className="mt-8">
+                                <div className="flex items-center gap-2 mb-6">
+                                    <ShoppingCart className="w-6 h-6 customtext-primary" />
+                                    <h2 className="text-base font-semibold">
+                                        Completa tu compra con estos productos
+                                    </h2>
+                                </div>
+
+                                {/* Mostrar combos disponibles */}
+                                {availableCombos.length > 0 && (
+                                    <div className="mb-6">
+                                        {availableCombos.map((combo, index) => (
+                                            <div
+                                                key={`combo-mobile-${combo.id}`}
+                                                className="border rounded-lg p-4 mb-4 bg-gay-50"
+                                            >
+                                                {/* Mostrar productos del combo */}
+                                                <div className="flex gap-4 mb-4">
+                                                    <div className="w-full flex gap-2 overflow-x-auto">
+                                                        {combo.combo_items?.map(
+                                                            (
+                                                                comboItem,
+                                                                itemIndex,
+                                                            ) => (
+                                                                <div
+                                                                    key={itemIndex}
+                                                                    className="flex items-center gap-2"
+                                                                >
+                                                                    <img
+                                                                        src={`/storage/images/item/${comboItem.image}`}
+                                                                        className="rounded-lg aspect-square w-16 h-16 object-cover bg-white"
+                                                                        onError={(
+                                                                            e,
+                                                                        ) =>
+                                                                        (e.target.src =
+                                                                            "/api/cover/thumbnail/null")
+                                                                        }
+                                                                        alt={
+                                                                            comboItem.name
+                                                                        }
+                                                                    />
+                                                                    {itemIndex <
+                                                                        combo
+                                                                            .combo_items
+                                                                            .length -
+                                                                        1 && (
+                                                                            <span className="text-lg font-bold customtext-primary flex items-center justify-center">
+                                                                                <Plus
+                                                                                    size={
+                                                                                        16
+                                                                                    }
+                                                                                />
+                                                                            </span>
+                                                                        )}
+                                                                </div>
+                                                            ),
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                {/* Lista detallada de productos */}
+                                                {combo.combo_items?.map(
+                                                    (comboItem, itemIndex) => (
+                                                        <div
+                                                            key={itemIndex}
+                                                            className="flex mt-2 gap-4 p-3 border rounded-lg items-center bg-white"
+                                                        >
+                                                            <CheckSquare className="w-4 h-4 customtext-primary" />
+                                                            <div className="flex-1 font-semibold">
+                                                                <p className="text-sm text-gray-700 font-medium">
+                                                                    {comboItem.name}
+                                                                </p>
+                                                                <span className="text-xs text-gray-500">
+                                                                    Cantidad:{" "}
+                                                                    {comboItem.quantity ||
+                                                                        1}
+                                                                </span>
+                                                            </div>
+                                                            <p className="font-bold text-gray-700 text-sm">
+                                                                {CurrencySymbol()}{" "}
+                                                                {parseFloat(
+                                                                    comboItem.price,
+                                                                ).toFixed(2)}
+                                                            </p>
+                                                        </div>
+                                                    ),
+                                                )}
+
+                                                {/* Total y botón */}
+                                                <div className="w-full flex flex-col justify-start items-start bg-blue-100 p-4 rounded-lg mt-4">
+                                                    {combo.discount > 0 && (
+                                                        <div className="flex items-center gap-2 mb-1">
+                                                            <span className="text-xs customtext-primary line-through">
+                                                                {CurrencySymbol()}{" "}
+                                                                {parseFloat(
+                                                                    combo.price,
+                                                                ).toFixed(2)}
+                                                            </span>
+                                                            <span className="bg-red-500 text-white text-xs px-2 py-1 rounded-lg">
+                                                                -
+                                                                {
+                                                                    combo.discount_percent
+                                                                }
+                                                                %
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                    <span className="text-xs font-semibold customtext-primary">
+                                                        {combo.discount > 0
+                                                            ? "Precio con descuento"
+                                                            : "Precio del combo"}
+                                                    </span>
+                                                    <p className="font-bold mb-2 customtext-primary text-2xl ">
+                                                        {CurrencySymbol()}{" "}
+                                                        {parseFloat(
+                                                            combo.final_price ||
+                                                            combo.price,
+                                                        ).toFixed(2)}
+                                                    </p>
+                                                    <button
+                                                        onClick={() =>
+                                                            addComboToCart(combo)
+                                                        }
+                                                        aria-label={`Agregar combo completo - ${combo.name}`}
+                                                        className="bg-primary text-white text-sm font-semibold w-full py-3 px-6 rounded-xl hover:bg-primary transition-all duration-300 hover:shadow-md"
+                                                    >
+                                                        Agregar combo completo
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                    {/* Entrega y Soporte */}
+                    {/* Delivery Options - Mejoradas */}
+                    <div className="border rounded-lg overflow-hidden flex flex-col mt-8 justify-center">
+                        <button
+                            onClick={() => setDeliveryPolicyModalOpen(true)}
+                            aria-label="Consultar políticas de envío a domicilio"
+                            className="w-full p-6 hover:bg-gray-50 transition-colors duration-200 flex items-center gap-4"
+                        >
+                            <div className="flex gap-2 items-center">
+                                <div className="bg-secondary min-w-12 min-h-12 rounded-full mx-auto mb-2 flex items-center justify-center">
+                                    <Truck className="w-8 h-8 customtext-primary" />
+                                </div>
+                                <div>
+                                    <p className="font-semibold text-sm text-start customtext-neutral-dark">
+                                        Envío a domicilio
+                                    </p>
+                                    <p className="text-start text-xs customtext-neutral-light mt-1 underline">
+                                        Consultar
+                                    </p>
+                                </div>
+                            </div>
+                        </button>
+
+                        <button
+                            onClick={handleStoreListModal}
+                            aria-label="Consultar tiendas disponibles para retiro"
+                            className="w-full p-6 hover:bg-gray-50 transition-colors duration-200 flex items-center gap-4"
+                        >
+                            <div className="flex gap-2 items-center">
+                                <div className="bg-secondary min-w-12 min-h-12 rounded-full mx-auto mb-2 flex items-center justify-center">
+                                    <Store className="w-8 h-8 customtext-primary" />
+                                </div>
+                                <div>
+                                    <p className="font-semibold text-start text-sm customtext-neutral-dark">
+                                        Retiro en tienda
+                                    </p>
+                                    <p className="text-start text-xs customtext-neutral-light mt-1 underline">
+                                        Consultar tiendas disponibles
+                                    </p>
+                                </div>
+                            </div>
+                        </button>
+                        {/* Support - Mejorado */}
+                        <motion.div className="w-full p-6 cursor-pointer hover:bg-gray-50 transition-colors duration-200 flex items-center  gap-4">
+                            <motion.div className=" flex flex-row rounded-xl gap-3">
+                                <div className="bg-secondary min-w-12 max-w-12 min-h-12 max-h-12 flex items-center justify-center rounded-full flex-shrink-0">
+                                    <svg
+                                        className="w-8 h-8 customtext-primary"
+                                        fill="currentColor"
+                                        viewBox="0 0 24 24"
+                                    >
+                                        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893A11.821 11.821 0 0020.531 3.488" />
+                                    </svg>
+                                </div>
+                                <div className="font-semibold text-sm customtext-neutral-dark cursor-pointer">
+                                    <p>
+                                        ¿Tienes dudas? Haz{" "}
+                                        <a
+                                            className="underline"
+                                            onClick={handleClickWhatsApp}
+                                        >
+                                            clic aquí
+                                        </a>{" "}
+                                        y chatea con nosotros
+                                    </p>
+                                </div>
+                            </motion.div>
+                        </motion.div>
+                    </div>
+                </div>
+
+                {/* Bottom Navigation */}
+                <div className="fixed bottom-0 left-0 right-0 bg-white border-t shadow-lg z-[99]">
+                    <div className="p-4 flex gap-4">
+                        <button
+                            onClick={() => {
+                                onAddClicked(item);
+                                window.location.href = "/cart";
+                            }}
+                            disabled={isOutOfStock}
+                            aria-label="Comprar ahora"
+                            className={`flex-1 py-3 rounded-xl font-medium active:scale-95 transition-transform ${isOutOfStock ? "bg-gray-300 text-gray-500 cursor-not-allowed" : "bg-primary text-white"}`}
+                        >
+                            {isOutOfStock ? "Agotado" : "Comprar ahora"}
+                        </button>
+                        <button
+                            onClick={() => onAddClicked(item)}
+                            disabled={isOutOfStock}
+                            aria-label="Añadir al carrito"
+                            className={`flex-1 py-3 rounded-xl font-medium border active:scale-95 transition-transform ${isOutOfStock ? "bg-gray-100 text-neutral-light border-gray-300 cursor-not-allowed" : "bg-gray-100 customtext-primary border-primary"}`}
+                        >
+                            {isOutOfStock ? "Agotado" : "Añadir al carrito"}
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            {/* Desktop View */}
+            <article
+                itemScope={true}
+                itemType="https://schema.org/Product"
+                className="px-primary mx-auto py-12  2xl:px-0 2xl:max-w-7xl bg-sections-color hidden md:block "
+            >
+                <div className="bg-white rounded-xl p-4 md:p-8">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        {/* Left Column - Images and Delivery Options */}
+                        <div className="space-y-6">
+                            <div className="mb-6 md:hidden">
+                                <p className="customtext-neutral-light text-sm">
+                                    {item?.brand?.name ? (
+                                        <>
+                                            Marca:{" "}
+                                            <span className="customtext-neutral-dark">
+                                                {item?.brand?.name}
+                                            </span>
+                                        </>
+                                    ) : (
+                                        item?.category?.name
+                                    )}
+                                </p>
+                                <p className="customtext-neutral-dark text-[28px] md:text-[40px] font-bold mt-2">
+                                    {item?.name}
+                                </p>
+                            </div>
+
+                            {/* Product Images */}
+                            <div className="flex gap-6">
+                                {/* Thumbnails */}
+                                <div className="flex flex-col gap-4">
+                                    <button
+                                        onClick={() =>
+                                            setSelectedImage({
+                                                url: item?.image,
+                                                type: "main",
+                                            })
+                                        }
+                                        aria-label="Ver miniatura principal"
+                                        className={`w-16 h-16  rounded-lg p-1 border-2 ${selectedImage.url === item?.image
+                                            ? "border-primary "
+                                            : "border-gray-200"
+                                            }`}
+                                    >
+                                        <img
+                                            src={`/storage/images/item/${item?.image}`}
+                                            alt={`${item?.name || "Imagen principal del producto"} - Miniatura 1`}
+                                            className="w-full h-full object-cover rounded-lg aspect-square"
+                                            onError={(e) =>
+                                            (e.target.src =
+                                                "/api/cover/thumbnail/null")
+                                            }
+                                        />
+                                    </button>
+                                    {item?.images
+                                        .filter(
+                                            (image, index, self) =>
+                                                index ===
+                                                self.findIndex(
+                                                    (img) =>
+                                                        img.url === image.url,
+                                                ), // Filtra duplicados
+                                        )
+                                        .map((image, index) => (
+                                            <button
+                                                key={index}
+                                                onClick={() =>
+                                                    setSelectedImage({
+                                                        url: image?.url,
+                                                        type: "gallery",
+                                                    })
+                                                }
+                                                aria-label={`Ver miniatura ${index + 2}`}
+                                                className={`w-16 h-16 border-2 rounded-lg p-1 ${selectedImage.url ===
+                                                    image.url
+                                                    ? "border-primary"
+                                                    : "border-gray-200"
+                                                    }`}
+                                            >
+                                                <img
+                                                    src={`/storage/images/item/${image?.url}`}
+                                                    alt={`${item?.name || "Imagen del producto"} - Miniatura ${index + 2}`}
+                                                    className="w-full h-full object-cover rounded-lg aspect-square"
+                                                    onError={(e) =>
+                                                    (e.target.src =
+                                                        "/api/cover/thumbnail/null")
+                                                    }
+                                                />
+                                            </button>
+                                        ))}
+                                </div>
+
+                                {/* Main Image */}
+                                <div className="flex-1 relative group">
+                                    {/* Zoom Icon */}
+                                    <button
+                                        onClick={handleZoomClick}
+                                        aria-label={isZoomEnabled ? "Desactivar zoom de imagen" : "Activar zoom de imagen"}
+                                        className={`absolute top-3 right-3 z-10 p-2 rounded-full shadow-lg transition-all duration-200 ${isZoomEnabled
+                                            ? "bg-primary text-white opacity-100"
+                                            : "bg-white/90 hover:bg-white text-gray-700 hover:text-primary group-hover:opacity-100 opacity-60"
+                                            }`}
+                                        title={
+                                            isZoomEnabled
+                                                ? "Desactivar zoom"
+                                                : "Activar zoom"
+                                        }
+                                    >
+                                        <ZoomIn className="w-5 h-5" />
+                                    </button>
+
+                                    <div
+                                        className={`relative overflow-hidden rounded-lg select-none ${isZoomEnabled
+                                            ? isDragging
+                                                ? "cursor-grabbing"
+                                                : "cursor-grab"
+                                            : "cursor-pointer"
+                                            }`}
+                                        onMouseMove={handleMouseMove}
+                                        onMouseDown={handleMouseDown}
+                                        onMouseUp={handleMouseUp}
+                                        onMouseLeave={handleMouseLeave}
+                                        onClick={() =>
+                                            !isZoomEnabled && handleZoomClick()
+                                        }
+                                        style={{
+                                            height: "auto",
+                                            position: "relative",
+                                        }}
+                                    >
+                                        <img
+                                            ref={imageRef}
+                                            src={
+                                                selectedImage.type === "main"
+                                                    ? `/storage/images/item/${selectedImage?.url}`
+                                                    : `/storage/images/item/${selectedImage?.url}`
+                                            }
+                                            onError={(e) =>
+                                            (e.target.src =
+                                                "/api/cover/thumbnail/null")
+                                            }
+                                            alt={item?.name || "Imagen principal del producto"}
+                                            itemProp="image"
+                                            className="w-full rounded-lg object-cover aspect-square"
+                                            style={{
+                                                ...(isZoomEnabled
+                                                    ? {
+                                                        transform: `scale(2.5)`,
+                                                        transformOrigin: `${zoomPosition.x}% ${zoomPosition.y}%`,
+                                                        transition: isDragging
+                                                            ? "none"
+                                                            : "transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), transform-origin 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+                                                    }
+                                                    : {
+                                                        transform: "scale(1)",
+                                                        transition:
+                                                            "transform 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
+                                                    }),
+                                                userSelect: "none",
+                                                pointerEvents: "auto",
+                                            }}
+                                            draggable={false}
+                                        />
+
+                                        {/* Overlay visual para indicar que se puede hacer zoom */}
+                                        {!isZoomEnabled && (
+                                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-colors duration-300 rounded-lg flex items-center justify-center">
+                                                <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-black/75 text-white px-4 py-2 rounded-full text-sm font-medium shadow-lg">
+                                                    Click para activar zoom
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Indicador cuando el zoom está activo */}
+                                        {isZoomEnabled && (
+                                            <div className="absolute bottom-3 left-3 bg-primary text-white px-3 py-2 rounded-lg text-xs font-medium shadow-lg border border-white/20">
+                                                <div className="flex items-center gap-2">
+                                                    <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
+                                                    <span>
+                                                        {isDragging
+                                                            ? "Arrastrando vista..."
+                                                            : "Mantén presionado y arrastra"}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Indicador de posición con mini-mapa */}
+                                        {isZoomEnabled && (
+                                            <div className="absolute top-4 left-4 bg-black/20 text-white p-2 rounded-lg shadow-lg">
+                                                <div className="flex flex-col items-center gap-2">
+                                                    {/* Mini mapa */}
+                                                    <div className="relative w-12 h-12 bg-white/20 border border-white/40 rounded">
+                                                        <div
+                                                            className="absolute w-3 h-3 bg-primary border border-white rounded-sm shadow-sm transition-all duration-200"
+                                                            style={{
+                                                                left: `${(zoomPosition.x / 100) * (48 - 12)}px`,
+                                                                top: `${(zoomPosition.y / 100) * (48 - 12)}px`,
+                                                            }}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="flex lg:hidden flex-col customtext-neutral-light justify-start items-start gap-2 text-sm mb-6">
+                                <span className="customtext-neutral-light text-sm">
+                                    SKU:{" "}
+                                    <span className="customtext-neutral-dark">
+                                        {item?.sku}
+                                    </span>
+                                </span>
+                                <span className="ustomtext-neutral-light text-sm">
+                                    Disponibilidad:{" "}
+                                    <span className="customtext-neutral-dark">
+                                        {item?.stock_unlimited || item?.stock > 0
+                                            ? "En stock"
+                                            : "Agotado"}
+                                    </span>
+                                </span>
+                            </div>
+                            <div className="flex lg:hidden gap-8 border-b-2 pb-8">
+                                {/* Price Section */}
+                                <div className=" w-full ">
+                                    <p className="text-sm customtext-neutral-light mb-1">
+                                        Precio:{" "}
+                                        <span className="line-through line-clamp-1">
+                                            {CurrencySymbol()} {item?.price}
+                                        </span>
+                                    </p>
+                                    <div className="flex items-center gap-4 ">
+                                        <span className="text-[40px] font-bold line-clamp-1">
+                                            {CurrencySymbol()}{" "}
+                                            {item?.final_price}
+                                        </span>
+                                        <span className="bg-[#F93232] text-white font-bold px-3 py-2 rounded-xl">
+                                            -
+                                            {Number(
+                                                item?.discount_percent,
+                                            ).toFixed(1)}
+                                            %
+                                        </span>
+                                    </div>
+
+                                    {/* Quantity */}
+                                    <div className="mt-4">
+                                        <div className="flex flex-col gap-3">
+                                            <span className="customtext-neutral-dark text-sm font-medium">
+                                                Cantidad
+                                            </span>
+                                            <div className="flex items-center gap-4">
+                                                <div className="flex items-center border border-gray-300 rounded-lg overflow-hidden bg-white">
+                                                    <button
+                                                        onClick={() =>
+                                                            setQuantity(
+                                                                Math.max(
+                                                                    1,
+                                                                    quantity -
+                                                                    1,
+                                                                ),
+                                                            )
+                                                        }
+                                                        className="w-10 h-10 flex items-center justify-center hover:bg-gray-100 active:bg-gray-200 transition-colors duration-200 customtext-neutral-dark font-semibold text-lg"
+                                                        disabled={quantity <= 1 || isOutOfStock}
+                                                    >
+                                                        −
+                                                    </button>
+                                                    <div className="w-12 h-10 flex items-center justify-center border-x border-gray-300 bg-gray-50">
+                                                        <span className="customtext-neutral-dark font-medium text-sm">
+                                                            {quantity}
+                                                        </span>
+                                                    </div>
+                                                    <button
+                                                        onClick={() =>
+                                                            setQuantity(
+                                                                Math.min(
+                                                                    item?.stock_unlimited ? 99 : (item?.stock || 0),
+                                                                    quantity +
+                                                                    1,
+                                                                ),
+                                                            )
+                                                        }
+                                                        className="w-10 h-10 flex items-center justify-center hover:bg-gray-100 active:bg-gray-200 transition-colors duration-200 customtext-neutral-dark font-semibold text-lg"
+                                                        disabled={
+                                                            quantity >= (item?.stock_unlimited ? 99 : (item?.stock || 0)) || isOutOfStock
+                                                        }
+                                                    >
+                                                        +
+                                                    </button>
+                                                </div>
+                                                <span className="customtext-neutral-light text-xs">
+                                                    Máximo {item?.stock_unlimited ? 99 : (item?.stock || 0)} unidades
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Add to Cart */}
+                                    <button
+                                        onClick={() => {
+                                            onAddClicked(item);
+                                            setModalOpen(!modalOpen);
+                                        }}
+                                        disabled={isOutOfStock}
+                                        className={`w-full py-3 font-bold shadow-lg rounded-xl hover:opacity-90 transition-all duration-300 mt-4 ${isOutOfStock ? "bg-gray-300 text-gray-500 cursor-not-allowed" : `bg-primary ${data?.class_button || "text-white"}`}`}
+                                    >
+                                        {isOutOfStock ? "Agotado" : "Agregar al carrito"}
+                                    </button>
+
+                                    {/* Descargables / Manuales PDF */}
+                                    {pdfFiles.length > 0 && (
+                                        <div className="relative w-full mt-3">
+                                            {pdfFiles.length === 1 ? (
+                                                <a
+                                                    href={`/storage/images/item/${pdfFiles[0].url || pdfFiles[0]}`}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="w-full py-3.5 px-4 bg-white hover:bg-gray-50 text-neutral-dark hover:customtext-primary border-2 border-gray-200 hover:border-primary font-bold text-xs md:text-sm uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all shadow-xs rounded-xl group"
+                                                >
+                                                    <DocumentDownloadIcon className="w-5 h-5 customtext-primary flex-shrink-0 transition-transform group-hover:scale-110" />
+                                                    <span className="truncate">
+                                                        DESCARGAR {pdfFiles[0].name ? (pdfFiles[0].name.length > 22 ? `${pdfFiles[0].name.slice(0, 22)}...` : pdfFiles[0].name) : "MANUAL / FICHA"}
+                                                    </span>
+                                                </a>
+                                            ) : (
+                                                <>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setIsPdfDropdownOpen(!isPdfDropdownOpen)}
+                                                        className="w-full py-3.5 px-4 bg-white hover:bg-gray-50 text-neutral-dark hover:customtext-primary border-2 border-gray-200 hover:border-primary font-bold text-xs md:text-sm uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all shadow-xs rounded-xl group"
+                                                    >
+                                                        <DocumentDownloadIcon className="w-5 h-5 customtext-primary flex-shrink-0 transition-transform group-hover:scale-110" />
+                                                        <span>DESCARGABLES / MANUALES</span>
+                                                        <ChevronDown className={`w-4 h-4 text-neutral-light group-hover:customtext-primary transition-transform duration-200 ${isPdfDropdownOpen ? "rotate-180" : ""}`} />
+                                                    </button>
+
+                                                    {isPdfDropdownOpen && (
+                                                        <>
+                                                            <div
+                                                                className="fixed inset-0 z-40"
+                                                                onClick={() => setIsPdfDropdownOpen(false)}
+                                                            />
+                                                            <div className="absolute bottom-full left-0 right-0 mb-3 bg-white border border-gray-200 shadow-2xl rounded-2xl z-50 overflow-hidden">
+                                                                <div className="bg-primary px-4 py-2.5 text-white flex items-center justify-between">
+                                                                    <span className="font-bold text-xs uppercase tracking-wider flex items-center gap-2">
+                                                                        <DocumentDownloadIcon className="w-4 h-4 text-white" />
+                                                                        Archivos disponibles
+                                                                    </span>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => setIsPdfDropdownOpen(false)}
+                                                                        className="p-1 rounded-lg text-white/80 hover:text-white hover:bg-white/20 transition-colors"
+                                                                        aria-label="Cerrar"
+                                                                    >
+                                                                        <X className="w-4 h-4" />
+                                                                    </button>
+                                                                </div>
+                                                                <div className="p-2 space-y-1 max-h-60 overflow-y-auto">
+                                                                    {pdfFiles.map((pdf, idx) => (
+                                                                        <a
+                                                                            key={idx}
+                                                                            href={`/storage/images/item/${pdf.url || pdf}`}
+                                                                            target="_blank"
+                                                                            rel="noopener noreferrer"
+                                                                            className="w-full px-3 py-2.5 text-xs md:text-sm font-semibold text-neutral-dark hover:customtext-primary hover:bg-gray-50 rounded-xl flex items-center justify-between transition-colors group/item"
+                                                                        >
+                                                                            <div className="flex items-center gap-2.5 min-w-0 flex-1 me-2">
+                                                                                <DocumentDownloadIcon className="w-4 h-4 customtext-primary flex-shrink-0" />
+                                                                                <span className="truncate">
+                                                                                    {pdf.name || (typeof pdf === "string" ? pdf.split("/").pop() : `Manual ${idx + 1}`)}
+                                                                                </span>
+                                                                            </div>
+                                                                            <Download className="w-4 h-4 text-neutral-light group-hover/item:customtext-primary flex-shrink-0" />
+                                                                        </a>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        </>
+                                                    )}
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Specifications */}
+                            {mainSpecifications.length > 0 && (
+                                <div className="block lg:hidden flex-1 w-full ">
+                                    <div className="bg-[#F7F9FB] rounded-lg p-6">
+                                        <h2 className="font-medium text-sm mb-4">
+                                            Especificaciones principales
+                                        </h2>
+                                        <ul className="space-y-2 customtext-neutral-light mb-4">
+                                            {(expandedSpecificationMain ? mainSpecifications : mainSpecifications.slice(0, 3)).map(
+                                                (spec, index) => (
+                                                    <li
+                                                        key={index}
+                                                        className="flex gap-2 items-start text-sm"
+                                                    >
+                                                        <CircleCheckIcon className="customtext-primary min-w-5 min-h-5 max-w-5 max-h-5 mt-0.5 shrink-0" />
+                                                        <span className="text-wrap break-words flex-1">
+                                                            {spec.title && (spec.description || spec.value) && String(spec.title).trim() !== String(spec.description || spec.value).trim() ? (
+                                                                <>
+                                                                    <span className="font-medium customtext-neutral-dark">{spec.title}: </span>
+                                                                    <span>{spec.description || spec.value}</span>
+                                                                </>
+                                                            ) : (
+                                                                <span>{spec.title || spec.description || spec.value}</span>
+                                                            )}
+                                                        </span>
+                                                    </li>
+                                                ),
+                                            )}
+                                        </ul>
+                                        <button
+                                            className="customtext-primary text-sm font-semibold hover:underline flex items-center gap-1 transition-all duration-300"
+                                            onClick={() =>
+                                                setExpanded(
+                                                    !expandedSpecificationMain,
+                                                )
+                                            }
+                                        >
+                                            {expandedSpecificationMain
+                                                ? "Ver menos"
+                                                : "Ver más especificaciones"}
+                                            {expandedSpecificationMain ? (
+                                                <ChevronUp className="w-4 h-4" />
+                                            ) : (
+                                                <ChevronDown className="w-4 h-4" />
+                                            )}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="block lg:hidden mt-8 ">
+                                <div className="flex items-center gap-2 mb-6">
+                                    <ShoppingCart className="w-6 h-6 customtext-primary" />
+                                    <h2 className="text-base font-semibold">
+                                        Completa tu compra con estos productos
+                                    </h2>
+                                </div>
+
+                                {/* Mostrar combos disponibles */}
+                                {availableCombos.length > 0 && (
+                                    <div className="mb-6">
+                                        <h3 className="text-sm font-medium text-gray-700 mb-4">
+                                            Combos recomendados
+                                        </h3>
+                                        {availableCombos.map((combo, index) => (
+                                            <div
+                                                key={`combo-${combo.id}`}
+                                                className="border rounded-lg p-4 mb-4 bg-blue-50"
+                                            >
+                                                {/* Header del combo */}
+                                                <div className="flex items-center gap-2 mb-4">
+                                                    <div className="bg-primary text-white rounded-full p-1">
+                                                        <ShoppingCart
+                                                            size={14}
+                                                        />
+                                                    </div>
+                                                    <span className="text-sm font-semibold customtext-primary">
+                                                        COMBO: {combo.name}
+                                                    </span>
+                                                </div>
+
+                                                {/* Mostrar productos del combo */}
+                                                <div className="flex gap-4 mb-4">
+                                                    <div className="w-2/3 flex gap-2">
+                                                        {combo.combo_items?.map(
+                                                            (
+                                                                comboItem,
+                                                                itemIndex,
+                                                            ) => (
+                                                                <div
+                                                                    key={
+                                                                        itemIndex
+                                                                    }
+                                                                    className="flex items-center gap-2"
+                                                                >
+                                                                    <img
+                                                                        src={`/storage/images/item/${comboItem.image}`}
+                                                                        className="rounded-lg aspect-square w-16 h-16 object-cover bg-white"
+                                                                        onError={(
+                                                                            e,
+                                                                        ) =>
+                                                                        (e.target.src =
+                                                                            "/api/cover/thumbnail/null")
+                                                                        }
+                                                                        alt={
+                                                                            comboItem.name
+                                                                        }
+                                                                    />
+                                                                    {itemIndex <
+                                                                        combo
+                                                                            .combo_items
+                                                                            .length -
+                                                                        1 && (
+                                                                            <span className="text-lg font-bold customtext-primary">
+                                                                                <Plus
+                                                                                    size={
+                                                                                        16
+                                                                                    }
+                                                                                />
+                                                                            </span>
+                                                                        )}
+                                                                </div>
+                                                            ),
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                {/* Lista detallada de productos */}
+                                                {combo.combo_items?.map(
+                                                    (comboItem, itemIndex) => (
+                                                        <div
+                                                            key={itemIndex}
+                                                            className="flex mt-2 gap-4 p-3 border rounded-lg items-center bg-white"
+                                                        >
+                                                            <CheckSquare className="w-4 h-4 customtext-primary" />
+                                                            <div className="flex-1 font-semibold">
+                                                                <p className="text-sm text-gray-700 font-medium">
+                                                                    {
+                                                                        comboItem.name
+                                                                    }
+                                                                </p>
+                                                                <span className="text-xs text-gray-500">
+                                                                    Cantidad:{" "}
+                                                                    {comboItem.quantity ||
+                                                                        1}
+                                                                </span>
+                                                            </div>
+                                                            <p className="font-bold text-gray-700 text-sm">
+                                                                {CurrencySymbol()}{" "}
+                                                                {parseFloat(
+                                                                    comboItem.price,
+                                                                ).toFixed(2)}
+                                                            </p>
+                                                        </div>
+                                                    ),
+                                                )}
+
+                                                {/* Total y botón */}
+                                                <div className="w-full flex flex-col justify-start items-start bg-blue-100 p-4 rounded-lg mt-4">
+                                                    {combo.discount > 0 && (
+                                                        <div className="flex items-center gap-2 mb-1">
+                                                            <span className="text-xs customtext-primary line-through">
+                                                                {CurrencySymbol()}{" "}
+                                                                {parseFloat(
+                                                                    combo.price,
+                                                                ).toFixed(2)}
+                                                            </span>
+                                                            <span className="bg-red-500 text-white text-xs px-2 py-1 rounded">
+                                                                -
+                                                                {
+                                                                    combo.discount_percent
+                                                                }
+                                                                %
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                    <span className="text-xs font-semibold customtext-primary">
+                                                        {combo.discount > 0
+                                                            ? "Precio con descuento"
+                                                            : "Precio del combo"}
+                                                    </span>
+                                                    <p className="font-bold mb-2 customtext-primary text-lg">
+                                                        {CurrencySymbol()}{" "}
+                                                        {parseFloat(
+                                                            combo.final_price ||
+                                                            combo.price,
+                                                        ).toFixed(2)}
+                                                    </p>
+                                                    <button
+                                                        onClick={() =>
+                                                            addComboToCart(
+                                                                combo,
+                                                            )
+                                                        }
+                                                        className="bg-primary text-white text-sm font-semibold w-full py-3 px-6 rounded-xl hover:bg-primary transition-all duration-300 hover:shadow-md"
+                                                    >
+                                                        Agregar combo completo
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {/* Items asociados individuales */}
+                                {associatedItems.length > 0 && (
+                                    <>
+                                        <div className=" flex gap-4">
+                                            <div className="w-2/3 flex gap-2">
+                                                {associatedItems.map(
+                                                    (product, index) => (
+                                                        <div
+                                                            key={index}
+                                                            className="flex items-center gap-2"
+                                                        >
+                                                            <img
+                                                                src={`/storage/images/item/${product?.image}`}
+                                                                alt={product?.name || "Producto asociado"}
+                                                                className=" rounded-lg aspect-square w-24 h-24 object-cover bg-[#F7F9FB]"
+                                                                onError={(e) =>
+                                                                (e.target.src =
+                                                                    "/api/cover/thumbnail/null")
+                                                                }
+                                                            />
+                                                            {index <
+                                                                associatedItems.length -
+                                                                1 && (
+                                                                    <span className="text-2xl font-bold">
+                                                                        <Plus />
+                                                                    </span>
+                                                                )}
+                                                        </div>
+                                                    ),
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {associatedItems.map(
+                                            (product, index) => (
+                                                <div
+                                                    key={index}
+                                                    className="flex mt-4 gap-4 p-4 border rounded-lg items-center"
+                                                >
+                                                    <CheckSquare className="w-5 h-5 customtext-primary" />
+                                                    <div className="flex-1 font-semibold">
+                                                        <span className="text-[10px] customtext-neutral-dark block">
+                                                            {
+                                                                product?.brand
+                                                                    ?.name
+                                                            }
+                                                        </span>
+                                                        <p className="text-sm customtext-neutral-light font-medium">
+                                                            {product?.name}
+                                                        </p>
+                                                    </div>
+                                                    <p className="font-bold customtext-neutral-dark">
+                                                        {CurrencySymbol()}{" "}
+                                                        {parseFloat(
+                                                            product?.final_price,
+                                                        ).toFixed(2)}
+                                                    </p>
+                                                </div>
+                                            ),
+                                        )}
+
+                                        <div className=" w-full flex flex-col justify-start items-start bg-gray-50 p-4 rounded-lg mt-4">
+                                            <span className="text-xs font-semibold customtext-neutral-light">
+                                                Total
+                                            </span>
+
+                                            <p className="font-bold mb-2 customtext-neutral-dark">
+                                                {CurrencySymbol()}{" "}
+                                                {total.toFixed(2)}
+                                            </p>
+                                            <button aria-label="Agregar todos los productos asociados al carrito"
+                                                onClick={() =>
+                                                    addAssociatedItems()
+                                                }
+                                                className={`bg-primary text-xs font-semibold  w-max py-3 px-6 rounded-xl hover:opacity-90 transition-all duration-300 hover:shadow-md ${data?.class_button || "text-white"}`}
+                                            >
+                                                Agregar al carrito
+                                            </button>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                            {/* Delivery Options - Mejoradas */}
+                            <div className="border rounded-lg overflow-hidden flex justify-center">
+                                <button aria-label="Consultar políticas de envío a domicilio"
+                                    onClick={() =>
+                                        setDeliveryPolicyModalOpen(true)
+                                    }
+                                    className="w-full p-6 hover:bg-gray-50 transition-colors duration-200 flex items-center  gap-4"
+                                >
+                                    <div className=" flex gap-2 items-center">
+                                        <div className="bg-secondary min-w-10 min-h-10 rounded-full mx-auto  flex items-center justify-center">
+                                            <Truck className="w-6 h-6 customtext-primary" />
+                                        </div>
+                                        <div>
+                                            <p className="font-semibold text-start text-sm customtext-neutral-dark">
+                                                Envío a domicilio
+                                            </p>
+                                            <p className="text-start text-xs customtext-neutral-light mt-1 underline">
+                                                Consultar{" "}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </button>
+
+                                <button aria-label="Consultar tiendas disponibles para retiro"
+                                    onClick={handleStoreListModal}
+                                    className="w-full p-6 hover:bg-gray-50 transition-colors duration-200 flex items-center gap-4"
+                                >
+                                    <div className="flex gap-2 items-center">
+                                        <div className="bg-secondary min-w-10 min-h-10 rounded-full mx-auto flex items-center justify-center">
+                                            <Store className="w-6 h-6 customtext-primary" />
+                                        </div>
+                                        <div>
+                                            <p className="font-semibold text-start text-sm customtext-neutral-dark">
+                                                Retiro en tienda
+                                            </p>
+                                            <p className="text-start text-xs customtext-neutral-light mt-1 underline">
+                                                Consultar
+                                            </p>
+                                        </div>
+                                    </div>
+                                </button>
+
+                                {/* Support - Mejorado */}
+                                <motion.div className="w-full p-6 cursor-pointer hover:bg-gray-50 transition-colors duration-200 flex items-center  gap-4">
+                                    <motion.div className=" flex flex-row rounded-xl gap-3">
+                                        <div className="bg-secondary min-w-10 max-w-10 min-h-10 max-h-10 flex items-center justify-center rounded-full flex-shrink-0">
+                                            <svg
+                                                className="w-6 h-6 customtext-primary"
+                                                fill="currentColor"
+                                                viewBox="0 0 24 24"
+                                            >
+                                                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893A11.821 11.821 0 0020.531 3.488" />
+                                            </svg>
+                                        </div>
+                                        <div className="font-semibold text-sm customtext-neutral-dark cursor-pointer">
+                                            <p>
+                                                ¿Tienes dudas? Haz{" "}
+                                                <a
+                                                    className="underline"
+                                                    onClick={
+                                                        handleClickWhatsApp
+                                                    }
+                                                >
+                                                    clic aquí
+                                                </a>{" "}
+                                            </p>
+                                        </div>
+                                    </motion.div>
+                                </motion.div>
+                            </div>
+                        </div>
+
+                        {/* Right Column - Product Info */}
+                        <div className="hidden md:block">
+                            {/* Brand and Title */}
+                            <div className="mb-6">
+                                <p className="customtext-neutral-light text-sm">
+                                    {item?.brand?.name ? (
+                                        <span itemProp="brand" itemScope={true} itemType="https://schema.org/Brand">
+                                            Marca:{" "}
+                                            <span itemProp="name" className="customtext-neutral-dark">
+                                                {item?.brand?.name}
+                                            </span>
+                                        </span>
+                                    ) : (
+                                        item?.category?.name
+                                    )}
+                                </p>
+                                <h1 itemProp="name" className="customtext-neutral-dark text-[40px] font-bold mt-2">
+                                    {item?.name}
+                                </h1>
+                            </div>
+
+                            {/* SKU and Availability */}
+                            <div className="flex customtext-neutral-light items-center gap-8 text-sm mb-6">
+                                <span className="customtext-neutral-light text-sm">
+                                    SKU:{" "}
+                                    <span itemProp="sku" className="customtext-neutral-dark">
+                                        {item?.sku}
+                                    </span>
+                                </span>
+                                <span className="ustomtext-neutral-light text-sm">
+                                    Disponibilidad:{" "}
+                                    <span className="customtext-neutral-dark">
+                                        {item?.stock_unlimited || item?.stock > 0
+                                            ? "En stock"
+                                            : "Agotado"}
+                                    </span>
+                                </span>
+                            </div>
+                            <div className="flex gap-8 border-b-2 pb-8">
+                                {/* Specifications */}
+                                {mainSpecifications.length > 0 && (
+                                    <div className="flex-1 w-7/12 ">
+                                        <div className="bg-[#F7F9FB] rounded-lg p-6 h-full flex flex-col justify-between">
+                                            <div>
+                                                <h2 className="font-medium text-sm mb-4">
+                                                    Especificaciones principales
+                                                </h2>
+                                                <ul className="space-y-2 customtext-neutral-light mb-4">
+                                                    {(expandedSpecificationMain ? mainSpecifications : mainSpecifications.slice(0, 3)).map(
+                                                        (spec, index) => (
+                                                            <li
+                                                                key={index}
+                                                                className="flex gap-2 items-start text-sm"
+                                                            >
+                                                                <CircleCheckIcon className="customtext-primary min-w-5 min-h-5 max-w-5 max-h-5 mt-0.5 shrink-0" />
+                                                                <span className="text-wrap break-words flex-1">
+                                                                    {spec.title && (spec.description || spec.value) && String(spec.title).trim() !== String(spec.description || spec.value).trim() ? (
+                                                                        <>
+                                                                            <span className="font-medium customtext-neutral-dark">{spec.title}: </span>
+                                                                            <span>{spec.description || spec.value}</span>
+                                                                        </>
+                                                                    ) : (
+                                                                        <span>{spec.title || spec.description || spec.value}</span>
+                                                                    )}
+                                                                </span>
+                                                            </li>
+                                                        ),
+                                                    )}
+                                                </ul>
+                                            </div>
+                                            {mainSpecifications.length > 3 && (
+                                                <button aria-label="Mostrar más o menos especificaciones principales"
+                                                    className="customtext-primary text-sm font-semibold hover:underline flex items-center gap-1 transition-all duration-300 mt-2"
+                                                    onClick={() =>
+                                                        setExpanded(
+                                                            !expandedSpecificationMain,
+                                                        )
+                                                    }
+                                                >
+                                                    {expandedSpecificationMain
+                                                        ? "Ver menos"
+                                                        : "Ver más especificaciones"}
+                                                    {expandedSpecificationMain ? (
+                                                        <ChevronUp className="w-4 h-4" />
+                                                    ) : (
+                                                        <ChevronDown className="w-4 h-4" />
+                                                    )}
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Price Section */}
+                                <div itemProp="offers" itemScope={true} itemType="https://schema.org/Offer" className={mainSpecifications.length > 0 ? "w-5/12" : "w-full"}>
+                                    <meta itemProp="priceCurrency" content="PEN" />
+                                    <link itemProp="availability" href={item?.stock > 0 ? "https://schema.org/InStock" : "https://schema.org/OutOfStock"} />
+                                    {item?.discount > 0 &&
+                                        item?.price > item?.final_price && (
+                                            <p className="text-sm customtext-neutral-light mb-1">
+                                                Precio:{" "}
+                                                <span className="line-through">
+                                                    {CurrencySymbol()}{" "}
+                                                    {item?.price}
+                                                </span>
+                                            </p>
+                                        )}
+
+                                    <div className="flex items-center gap-4 relative ">
+                                        <span className="text-[36px] font-bold ">
+                                            {CurrencySymbol()}{" "}
+                                            <span itemProp="price" content={item?.final_price || item?.price}>{item?.final_price}</span>
+                                        </span>
+                                        {item?.discount > 0 &&
+                                            item?.price > item?.final_price && (
+                                                <span className=" absolute text-sm -top-8 right-0 bg-[#F93232] text-white font-bold px-3 py-2 rounded-xl">
+                                                    -
+                                                    {Number(
+                                                        item?.discount_percent,
+                                                    ).toFixed(1)}
+                                                    %
+                                                </span>
+                                            )}
+                                    </div>
+
+                                    {/* Quantity */}
+                                    <div className="mt-4">
+                                        <div className="flex flex-col gap-3">
+                                            <span className="customtext-neutral-dark text-sm font-medium">
+                                                Cantidad
+                                            </span>
+                                            <div className="flex items-center gap-4">
+                                                <div className="flex items-center border border-gray-300 rounded-lg overflow-hidden bg-white">
+                                                    <button
+                                                        onClick={() =>
+                                                            setQuantity(
+                                                                Math.max(
+                                                                    1,
+                                                                    quantity -
+                                                                    1,
+                                                                ),
+                                                            )
+                                                        }
+                                                        aria-label="Disminuir cantidad del producto"
+                                                        className="w-10 h-10 flex items-center justify-center hover:bg-gray-100 active:bg-gray-200 transition-colors duration-200 customtext-neutral-dark font-semibold text-lg"
+                                                        disabled={quantity <= 1 || isOutOfStock}
+                                                    >
+                                                        −
+                                                    </button>
+                                                    <div className="w-12 h-10 flex items-center justify-center border-x border-gray-300 bg-gray-50">
+                                                        <span className="customtext-neutral-dark font-medium text-sm">
+                                                            {quantity}
+                                                        </span>
+                                                    </div>
+                                                    <button aria-label="Aumentar cantidad del producto"
+                                                        onClick={() =>
+                                                            setQuantity(
+                                                                Math.min(
+                                                                    item?.stock_unlimited ? 99 : (item?.stock || 0),
+                                                                    quantity +
+                                                                    1,
+                                                                ),
+                                                            )
+                                                        }
+                                                        className="w-10 h-10 flex items-center justify-center hover:bg-gray-100 active:bg-gray-200 transition-colors duration-200 customtext-neutral-dark font-semibold text-lg"
+                                                        disabled={
+                                                            quantity >= (item?.stock_unlimited ? 99 : (item?.stock || 0)) || isOutOfStock
+                                                        }
+                                                    >
+                                                        +
+                                                    </button>
+                                                </div>
+                                                <span className="customtext-neutral-light text-xs">
+                                                    Máximo {item?.stock_unlimited ? 99 : (item?.stock || 0)} unidades
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Add to Cart */}
+                                    <button aria-label="Agregar producto al carrito"
+                                        onClick={() => {
+                                            onAddClicked(item);
+                                            setModalOpen(!modalOpen);
+                                        }}
+                                        disabled={isOutOfStock}
+                                        className={`w-full  py-3 font-bold shadow-lg rounded-xl hover:opacity-90 transition-all duration-300 mt-4 ${isOutOfStock ? "bg-gray-300 text-gray-500 cursor-not-allowed" : `bg-primary ${data?.class_button || "text-white"}`}`}
+                                    >
+                                        {isOutOfStock ? "Agotado" : "Agregar al carrito"}
+                                    </button>
+
+                                    {/* Descargables / Manuales PDF */}
+                                    {pdfFiles.length > 0 && (
+                                        <div className="relative w-full mt-3">
+                                            {pdfFiles.length === 1 ? (
+                                                <a
+                                                    href={`/storage/images/item/${pdfFiles[0].url || pdfFiles[0]}`}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="w-full py-3.5 px-4 bg-white hover:bg-gray-50 text-neutral-dark hover:customtext-primary border-2 border-gray-200 hover:border-primary font-bold text-xs md:text-sm uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all shadow-xs rounded-xl group"
+                                                >
+                                                    <DocumentDownloadIcon className="w-5 h-5 customtext-primary flex-shrink-0 transition-transform group-hover:scale-110" />
+                                                    <span className="truncate">
+                                                        DESCARGAR {pdfFiles[0].name ? (pdfFiles[0].name.length > 25 ? `${pdfFiles[0].name.slice(0, 25)}...` : pdfFiles[0].name) : "MANUAL / FICHA"}
+                                                    </span>
+                                                </a>
+                                            ) : (
+                                                <>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setIsPdfDropdownOpen(!isPdfDropdownOpen)}
+                                                        className="w-full py-3.5 px-4 bg-white hover:bg-gray-50 text-neutral-dark hover:customtext-primary border-2 border-gray-200 hover:border-primary font-bold text-xs md:text-sm uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all shadow-xs rounded-xl group"
+                                                    >
+                                                        <DocumentDownloadIcon className="w-5 h-5 customtext-primary flex-shrink-0 transition-transform group-hover:scale-110" />
+                                                        <span>DESCARGABLES / MANUALES</span>
+                                                        <ChevronDown className={`w-4 h-4 text-neutral-light group-hover:customtext-primary transition-transform duration-200 ${isPdfDropdownOpen ? "rotate-180" : ""}`} />
+                                                    </button>
+
+                                                    {isPdfDropdownOpen && (
+                                                        <>
+                                                            <div
+                                                                className="fixed inset-0 z-40"
+                                                                onClick={() => setIsPdfDropdownOpen(false)}
+                                                            />
+                                                            <div className="absolute bottom-full left-0 right-0 mb-3 bg-white border border-gray-200 shadow-2xl rounded-2xl z-50 overflow-hidden">
+                                                                <div className="bg-primary px-4 py-2.5 text-white flex items-center justify-between">
+                                                                    <span className="font-bold text-xs uppercase tracking-wider flex items-center gap-2">
+                                                                        <DocumentDownloadIcon className="w-4 h-4 text-white" />
+                                                                        Archivos disponibles
+                                                                    </span>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => setIsPdfDropdownOpen(false)}
+                                                                        className="p-1 rounded-lg text-white/80 hover:text-white hover:bg-white/20 transition-colors"
+                                                                        aria-label="Cerrar"
+                                                                    >
+                                                                        <X className="w-4 h-4" />
+                                                                    </button>
+                                                                </div>
+                                                                <div className="p-2 space-y-1 max-h-60 overflow-y-auto">
+                                                                    {pdfFiles.map((pdf, idx) => (
+                                                                        <a
+                                                                            key={idx}
+                                                                            href={`/storage/images/item/${pdf.url || pdf}`}
+                                                                            target="_blank"
+                                                                            rel="noopener noreferrer"
+                                                                            className="w-full px-3 py-2.5 text-xs md:text-sm font-semibold text-neutral-dark hover:customtext-primary hover:bg-gray-50 rounded-xl flex items-center justify-between transition-colors group/item"
+                                                                        >
+                                                                            <div className="flex items-center gap-2.5 min-w-0 flex-1 me-2">
+                                                                                <DocumentDownloadIcon className="w-4 h-4 customtext-primary flex-shrink-0" />
+                                                                                <span className="truncate">
+                                                                                    {pdf.name || (typeof pdf === "string" ? pdf.split("/").pop() : `Manual ${idx + 1}`)}
+                                                                                </span>
+                                                                            </div>
+                                                                            <Download className="w-4 h-4 text-neutral-light group-hover/item:customtext-primary flex-shrink-0" />
+                                                                        </a>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        </>
+                                                    )}
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Complementary Products */}
+                            {(associatedItems.length > 0 ||
+                                availableCombos.length > 0) && (
+                                    <div className="mt-8 ">
+                                        <div className="flex items-center gap-2 mb-6">
+                                            <ShoppingCart className="w-6 h-6 customtext-primary" />
+                                            <h2 className="text-base font-semibold">
+                                                Completa tu compra con estos
+                                                productos
+                                            </h2>
+                                        </div>
+
+                                        {/* Mostrar combos disponibles */}
+                                        {availableCombos.length > 0 && (
+                                            <div className="mb-6">
+                                                {availableCombos.map((combo) => (
+                                                    <div
+                                                        key={`combo-desktop-${combo.id}`}
+                                                        className="border rounded-lg p-6 mb-4 bg-gray-50"
+                                                    >
+                                                        {/* Mostrar productos del combo en fila */}
+                                                        <div className="flex gap-4 mb-4">
+                                                            <div className="w-2/3 flex gap-2">
+                                                                {combo.combo_items?.map(
+                                                                    (
+                                                                        comboItem,
+                                                                        itemIndex,
+                                                                    ) => (
+                                                                        <div
+                                                                            key={
+                                                                                itemIndex
+                                                                            }
+                                                                            className="flex items-center gap-2"
+                                                                        >
+                                                                            <img
+                                                                                src={`/storage/images/item/${comboItem.image}`}
+                                                                                className="rounded-lg aspect-square w-24 h-24 object-cover bg-white"
+                                                                                onError={(
+                                                                                    e,
+                                                                                ) =>
+                                                                                (e.target.src =
+                                                                                    "/api/cover/thumbnail/null")
+                                                                                }
+                                                                                alt={
+                                                                                    comboItem.name
+                                                                                }
+                                                                            />
+                                                                            {itemIndex <
+                                                                                combo
+                                                                                    .combo_items
+                                                                                    .length -
+                                                                                1 && (
+                                                                                    <span className="text-2xl font-bold customtext-primary">
+                                                                                        <Plus />
+                                                                                    </span>
+                                                                                )}
+                                                                        </div>
+                                                                    ),
+                                                                )}
+                                                            </div>
+
+                                                            {/* Sección de precio y botón */}
+                                                            <div className="w-1/3 flex flex-col justify-between items-end bg-blue-100 p-4 rounded-lg">
+                                                                {combo.discount >
+                                                                    0 && (
+                                                                        <div className="flex items-center gap-2 mb-1">
+                                                                            <span className="text-sm customtext-primary line-through">
+                                                                                {CurrencySymbol()}{" "}
+                                                                                {parseFloat(
+                                                                                    combo.price,
+                                                                                ).toFixed(
+                                                                                    2,
+                                                                                )}
+                                                                            </span>
+                                                                            <span className="bg-red-500 text-white text-xs px-2 py-1 rounded-lg">
+                                                                                -
+                                                                                {
+                                                                                    combo.discount_percent
+                                                                                }
+                                                                                %
+                                                                            </span>
+                                                                        </div>
+                                                                    )}
+                                                                <span className="text-xs font-semibold customtext-primary">
+                                                                    {combo.discount >
+                                                                        0
+                                                                        ? "Precio con descuento"
+                                                                        : "Precio del combo"}
+                                                                </span>
+                                                                <p className="font-bold mb-2 customtext-primary text-xl">
+                                                                    {CurrencySymbol()}{" "}
+                                                                    {parseFloat(
+                                                                        combo.final_price ||
+                                                                        combo.price,
+                                                                    ).toFixed(2)}
+                                                                </p>
+                                                                <button
+                                                                    onClick={() =>
+                                                                        addComboToCart(
+                                                                            combo,
+                                                                        )
+                                                                    }
+                                                                    className="bg-primary text-white text-sm font-semibold w-full py-3 rounded-xl hover:bg-accent transition-all duration-300 hover:shadow-md"
+                                                                >
+                                                                    Agregar combo
+                                                                </button>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Lista detallada de productos */}
+                                                        {combo.combo_items?.map(
+                                                            (
+                                                                comboItem,
+                                                                itemIndex,
+                                                            ) => (
+                                                                <div
+                                                                    key={itemIndex}
+                                                                    className="flex mt-2 gap-4 p-4 border rounded-lg items-center bg-white"
+                                                                >
+                                                                    <CheckSquare className="w-5 h-5 customtext-primary" />
+                                                                    <div className="flex-1 font-semibold">
+                                                                        <p className="text-sm text-gray-700 font-medium">
+                                                                            {
+                                                                                comboItem.name
+                                                                            }
+                                                                        </p>
+                                                                        <span className="text-xs text-gray-500">
+                                                                            Cantidad:{" "}
+                                                                            {comboItem.quantity ||
+                                                                                1}
+                                                                        </span>
+                                                                    </div>
+                                                                    <p className="font-bold text-gray-700">
+                                                                        {CurrencySymbol()}{" "}
+                                                                        {parseFloat(
+                                                                            comboItem.price,
+                                                                        ).toFixed(
+                                                                            2,
+                                                                        )}
+                                                                    </p>
+                                                                </div>
+                                                            ),
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                        </div>
+                    </div>
+                </div>
+                {(generalSpecifications.length > 0 || hasDescription) && (
+                    <div className={`grid gap-12 lg:gap-24 bg-white rounded-xl p-8 mt-12 ${generalSpecifications.length > 0 && hasDescription ? "md:grid-cols-2" : "grid-cols-1"}`}>
+                        {/* Specifications Section */}
+                        {generalSpecifications.length > 0 && (
+                            <div className={!hasDescription ? "w-full" : ""}>
+                                <h2 className="text-2xl font-bold customtext-neutral-dark mb-4 border-b pb-4">
+                                    Especificaciones
+                                </h2>
+                                <div
+                                    ref={specificationsRef}
+                                    className={`transition-all duration-300 overflow-hidden ${!isSpecificationsExpanded
+                                        ? "max-h-[400px]"
+                                        : ""
+                                        }`}
+                                >
+                                    <table className="w-full text-left border-collapse">
+                                        <tbody>
+                                            {generalSpecifications.map(
+                                                (spec, index) => (
+                                                    <tr
+                                                        key={index}
+                                                        className={index % 2 === 0
+                                                            ? "bg-[#F7F9FB]"
+                                                            : "bg-white"
+                                                        }
+                                                    >
+                                                        <td className="py-3 px-4 text-xs md:text-sm font-medium customtext-neutral-light  tracking-wide uppercase w-2/5 md:w-1/3 align-middle">
+                                                            {spec.title || "Característica"}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-xs md:text-sm font-normal customtext-neutral-dark  tracking-wide w-3/5 uppercase md:w-2/3 align-middle">
+                                                            {spec.description || spec.value || spec.title || "-"}
+                                                        </td>
+                                                    </tr>
+                                                ),
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                {needsSpecificationsExpand && (
+                                    <button
+                                        className="border-2 border-primary px-6 py-2.5 mt-6 rounded-xl inline-flex items-center gap-2 customtext-primary font-semibold text-sm cursor-pointer hover:bg-primary hover:text-white transition-all duration-300 active:scale-95"
+                                        onClick={() =>
+                                            setIsSpecificationsExpanded(
+                                                !isSpecificationsExpanded,
+                                            )
+                                        }
+                                    >
+                                        {isSpecificationsExpanded
+                                            ? "Ver menos"
+                                            : "Ver más especificaciones"}
+                                        <ChevronDown
+                                            className={`w-4 h-4 transform transition-transform duration-200 ${isSpecificationsExpanded
+                                                ? "rotate-180"
+                                                : ""
+                                                }`}
+                                        />
+                                    </button>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Additional Information Section */}
+                        {hasDescription && (
+                            <div className={generalSpecifications.length === 0 ? "w-full" : ""}>
+                                <h2 className="text-2xl font-bold customtext-neutral-dark mb-4 border-b pb-4">
+                                    Información adicional
+                                </h2>
+                                <div
+                                    ref={descriptionRef}
+                                    className={`space-y-4 transition-all duration-300 ${!isExpanded
+                                        ? "max-h-[400px] overflow-hidden"
+                                        : ""
+                                        }`}
+                                >
+                                    <h3 className="text-xl font-semibold customtext-neutral-dark mb-2">
+                                        Acerca de este artículo
+                                    </h3>
+                                    {item?.description && (
+                                        <div
+                                            itemProp="description"
+                                            className="customtext-neutral-dark prose prose-base max-w-none"
+                                            dangerouslySetInnerHTML={{
+                                                __html: item?.description,
+                                            }}
+                                        ></div>
+                                    )}
+                                    {Array.isArray(item?.features) && item.features.length > 0 && (
+                                        <div className="pl-4">
+                                            <ul className="list-disc pl-5 space-y-2">
+                                                {item.features.map((feature, index) => (
+                                                    <li
+                                                        key={index}
+                                                        className="customtext-neutral-dark"
+                                                    >
+                                                        {feature.feature || feature}
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    )}
+                                </div>
+                                {needsDescriptionExpand && (
+                                    <button
+                                        className="border-2 border-primary w-max px-5 py-3 my-8 rounded-xl flex items-center gap-2 customtext-primary font-semibold cursor-pointer hover:bg-primary hover:text-white transition-all duration-300"
+                                        onClick={() => setIsExpanded(!isExpanded)}
+                                    >
+                                        {isExpanded ? "Ver menos" : "Ver más"}
+                                        <ChevronDown
+                                            className={`transform transition-transform ${isExpanded ? "rotate-180" : ""
+                                                }`}
+                                        />
+                                    </button>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                )}
+            </article>
+            {relationsItems.length > 0 && (
+                <ProductInfinite
+                    data={{ ...data, title: "Productos relacionados" }}
+                    items={relationsItems}
+                    cart={cart}
+                    setCart={setCart}
+                />
+            )}
+
+            {/* Modal de Políticas de Envío */}
+            {deliveryPolicyModalOpen && (
+                <ReactModal
+                    isOpen={deliveryPolicyModalOpen}
+                    onRequestClose={() => setDeliveryPolicyModalOpen(false)}
+                    contentLabel={"Políticas de Envío"}
+                    className="fixed top-0 left-0 right-0 bottom-0 flex items-center justify-center p-4 z-50"
+                    overlayClassName="fixed inset-0 bg-black bg-opacity-50 z-[999]"
+                    ariaHideApp={false}
+                >
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+                        {/* Header */}
+                        <div className="flex items-center justify-between p-6 border-b border-gray-200">
+                            <h2 className="text-2xl font-bold text-gray-900 pr-4">
+                                Políticas de Envío
+                            </h2>
+                            <button
+                                onClick={() =>
+                                    setDeliveryPolicyModalOpen(false)
+                                }
+                                className="flex-shrink-0 text-neutral-light hover:text-red-500 transition-colors duration-200 p-1 hover:bg-gray-100 rounded-full"
+                                aria-label="Cerrar modal"
+                            >
+                                <X size={24} strokeWidth={2} />
+                            </button>
+                        </div>
+
+                        {/* Content */}
+                        <div className="flex-1 overflow-y-auto p-6">
+                            <div className="prose prose-gray max-w-none">
+                                <HtmlContent
+                                    html={
+                                        generals?.find(
+                                            (g) =>
+                                                g.correlative ===
+                                                "delivery_policy",
+                                        )?.description
+                                    }
+                                />
+                            </div>
+                        </div>
+
+                        {/* Footer */}
+                        <div className="flex justify-end p-6 border-t border-gray-200">
+                            <button aria-label="Cerrar modal de políticas de envío"
+                                onClick={() =>
+                                    setDeliveryPolicyModalOpen(false)
+                                }
+                                className="px-6 py-2 bg-primary text-white rounded-lg  transition-colors duration-200 font-medium"
+                            >
+                                Cerrar
+                            </button>
+                        </div>
+                    </div>
+                </ReactModal>
+            )}
+
+            {/* Modal de Listado de Tiendas */}
+            {storeListModalOpen && (
+                <ReactModal
+                    isOpen={storeListModalOpen}
+                    onRequestClose={() => setStoreListModalOpen(false)}
+                    contentLabel={"Tiendas Disponibles"}
+                    className="fixed top-0 left-0 right-0 bottom-0 flex items-center justify-center p-4 z-50"
+                    overlayClassName="fixed inset-0 bg-black bg-opacity-50 z-[999]"
+                    ariaHideApp={false}
+                >
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col">
+                        {/* Header */}
+                        <div className="flex items-center justify-between p-6 border-b border-gray-200">
+                            <div className="flex items-center gap-3">
+                                <Store className="w-8 h-8 text-primary" />
+                                <h2 className="text-2xl font-bold text-gray-900">
+                                    Nuestras Tiendas
+                                </h2>
+                            </div>
+                            <button
+                                onClick={() => setStoreListModalOpen(false)}
+                                className="flex-shrink-0 text-neutral-light hover:text-red-500 transition-colors duration-200 p-1 hover:bg-gray-100 rounded-full"
+                                aria-label="Cerrar modal"
+                            >
+                                <X size={24} strokeWidth={2} />
+                            </button>
+                        </div>
+
+                        {/* Content */}
+                        <div className="flex-1 overflow-y-auto p-6">
+                            {loadingStores ? (
+                                <div className="flex items-center justify-center py-12">
+                                    <div className="flex flex-col items-center gap-4">
+                                        <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+                                        <p className="text-gray-600">
+                                            Cargando tiendas...
+                                        </p>
+                                    </div>
+                                </div>
+                            ) : stores.length === 0 ? (
+                                <div className="flex items-center justify-center py-12">
+                                    <div className="text-center">
+                                        <Store className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                                        <h3 className="text-xl font-semibold text-gray-700 mb-2">
+                                            No hay tiendas disponibles
+                                        </h3>
+                                        <p className="text-gray-500">
+                                            Por el momento no tenemos tiendas
+                                            registradas.
+                                        </p>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                                    {stores.map((store) => (
+                                        <div
+                                            key={store.id}
+                                            className="bg-gray-50 rounded-lg p-6 hover:shadow-md transition-shadow duration-200"
+                                        >
+                                            {/* Store Image */}
+                                            <div className="mb-4">
+                                                {store.image ? (
+                                                    <img
+                                                        src={`/storage/images/stores/${store.image}`}
+                                                        alt={store.name}
+                                                        className="w-full h-32 object-cover rounded-lg"
+                                                        onError={(e) => {
+                                                            e.target.style.display =
+                                                                "none";
+                                                            e.target.nextElementSibling.style.display =
+                                                                "flex";
+                                                        }}
+                                                    />
+                                                ) : null}
+                                                <div
+                                                    className={`w-full h-32 bg-gray-200 rounded-lg flex items-center justify-center ${store.image ? "hidden" : "flex"}`}
+                                                >
+                                                    <Store className="w-12 h-12 text-neutral-light" />
+                                                </div>
+                                            </div>
+
+                                            {/* Store Header */}
+                                            <div className="mb-4">
+                                                <div className="flex items-center gap-2 mb-2">
+                                                    <h3 className="font-bold text-lg text-gray-900 flex-1">
+                                                        {store.name}
+                                                    </h3>
+                                                    {/* Badge del tipo de establecimiento */}
+                                                    <span
+                                                        className={`px-2 py-1 rounded-full text-xs font-medium ${store.type ===
+                                                            "tienda"
+                                                            ? "bg-green-100 text-green-800"
+                                                            : store.type ===
+                                                                "oficina"
+                                                                ? "bg-blue-100 customtext-primary"
+                                                                : store.type ===
+                                                                    "almacen"
+                                                                    ? "bg-yellow-100 text-yellow-800"
+                                                                    : store.type ===
+                                                                        "showroom"
+                                                                        ? "bg-purple-100 text-purple-800"
+                                                                        : "bg-gray-100 text-gray-800"
+                                                            }`}
+                                                    >
+                                                        {store.type === "tienda"
+                                                            ? "Tienda"
+                                                            : store.type ===
+                                                                "oficina"
+                                                                ? "Oficina"
+                                                                : store.type ===
+                                                                    "almacen"
+                                                                    ? "Almacén"
+                                                                    : store.type ===
+                                                                        "showroom"
+                                                                        ? "Showroom"
+                                                                        : store.type ||
+                                                                        "Otro"}
+                                                    </span>
+                                                </div>
+                                            </div>
+
+                                            {/* Store Details */}
+                                            <div className="space-y-3">
+                                                {/* Address */}
+                                                <div className="flex items-start gap-2">
+                                                    <Home className="w-4 h-4 text-gray-500 mt-0.5 flex-shrink-0" />
+                                                    <p className="text-sm text-gray-700 leading-relaxed">
+                                                        {store.address}
+                                                    </p>
+                                                </div>
+
+                                                {/* Phone */}
+                                                {store.phone && (
+                                                    <div className="flex items-center gap-2">
+                                                        <Phone className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                                                        <p className="text-sm text-gray-700">
+                                                            {store.phone}
+                                                        </p>
+                                                    </div>
+                                                )}
+
+                                                {/* Manager */}
+                                                {store.manager && (
+                                                    <div className="flex items-center gap-2">
+                                                        <CircleUserRound className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                                                        <p className="text-sm text-gray-700">
+                                                            Encargado:{" "}
+                                                            {store.manager}
+                                                        </p>
+                                                    </div>
+                                                )}
+
+                                                {/* Business Hours */}
+                                                {store.business_hours && (
+                                                    <div className="bg-white rounded-md p-3 mt-3">
+                                                        <div className="text-xs font-medium text-gray-700 mb-2">
+                                                            Horarios de
+                                                            atención:
+                                                        </div>
+                                                        <div className="text-xs text-gray-600">
+                                                            {(() => {
+                                                                try {
+                                                                    const hours =
+                                                                        typeof store.business_hours ===
+                                                                            "string"
+                                                                            ? JSON.parse(
+                                                                                store.business_hours,
+                                                                            )
+                                                                            : store.business_hours;
+
+                                                                    const today =
+                                                                        new Date().toLocaleDateString(
+                                                                            "es-PE",
+                                                                            {
+                                                                                weekday:
+                                                                                    "long",
+                                                                            },
+                                                                        );
+                                                                    const todayMap =
+                                                                    {
+                                                                        lunes: "Lunes",
+                                                                        martes: "Martes",
+                                                                        miércoles:
+                                                                            "Miércoles",
+                                                                        jueves: "Jueves",
+                                                                        viernes:
+                                                                            "Viernes",
+                                                                        sábado: "Sábado",
+                                                                        domingo:
+                                                                            "Domingo",
+                                                                    };
+
+                                                                    const todaySpanish =
+                                                                        todayMap[
+                                                                        today.toLowerCase()
+                                                                        ] ||
+                                                                        today;
+                                                                    const todaySchedule =
+                                                                        hours.find(
+                                                                            (
+                                                                                h,
+                                                                            ) =>
+                                                                                h.day.toLowerCase() ===
+                                                                                todaySpanish.toLowerCase(),
+                                                                        );
+
+                                                                    if (
+                                                                        todaySchedule
+                                                                    ) {
+                                                                        const status =
+                                                                            todaySchedule.closed
+                                                                                ? `Hoy: Cerrado`
+                                                                                : `Hoy: ${todaySchedule.open} - ${todaySchedule.close}`;
+
+                                                                        const isOpen =
+                                                                            !todaySchedule.closed &&
+                                                                            (() => {
+                                                                                const now =
+                                                                                    new Date();
+                                                                                const currentTime =
+                                                                                    now.getHours() *
+                                                                                    60 +
+                                                                                    now.getMinutes();
+                                                                                const [
+                                                                                    openHour,
+                                                                                    openMin,
+                                                                                ] =
+                                                                                    todaySchedule.open
+                                                                                        .split(
+                                                                                            ":",
+                                                                                        )
+                                                                                        .map(
+                                                                                            Number,
+                                                                                        );
+                                                                                const [
+                                                                                    closeHour,
+                                                                                    closeMin,
+                                                                                ] =
+                                                                                    todaySchedule.close
+                                                                                        .split(
+                                                                                            ":",
+                                                                                        )
+                                                                                        .map(
+                                                                                            Number,
+                                                                                        );
+                                                                                const openTime =
+                                                                                    openHour *
+                                                                                    60 +
+                                                                                    openMin;
+                                                                                const closeTime =
+                                                                                    closeHour *
+                                                                                    60 +
+                                                                                    closeMin;
+                                                                                return (
+                                                                                    currentTime >=
+                                                                                    openTime &&
+                                                                                    currentTime <=
+                                                                                    closeTime
+                                                                                );
+                                                                            })();
+
+                                                                        return (
+                                                                            <div className="flex items-center justify-between">
+                                                                                <span>
+                                                                                    {
+                                                                                        status
+                                                                                    }
+                                                                                </span>
+                                                                                <span
+                                                                                    className={`px-2 py-1 rounded-full text-xs font-medium ${isOpen
+                                                                                        ? "bg-green-100 text-green-800"
+                                                                                        : "bg-red-100 text-red-800"
+                                                                                        }`}
+                                                                                >
+                                                                                    {isOpen
+                                                                                        ? "Abierto"
+                                                                                        : "Cerrado"}
+                                                                                </span>
+                                                                            </div>
+                                                                        );
+                                                                    }
+                                                                    return "Horarios disponibles";
+                                                                } catch (e) {
+                                                                    return "Horarios disponibles";
+                                                                }
+                                                            })()}
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {/* Description */}
+                                                {store.description && (
+                                                    <div className="pt-2 border-t border-gray-200">
+                                                        <p className="text-xs text-gray-600 leading-relaxed">
+                                                            {store.description}
+                                                        </p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Footer */}
+                        <div className="flex justify-between items-center p-6 border-t border-gray-200 bg-gray-50">
+                            <p className="text-sm text-gray-600">
+                                {stores.length > 0 &&
+                                    `${stores.length} tienda${stores.length !== 1 ? "s" : ""} disponible${stores.length !== 1 ? "s" : ""}`}
+                            </p>
+                            <button aria-label="Cerrar modal de tiendas disponibles"
+                                onClick={() => setStoreListModalOpen(false)}
+                                className="px-6 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors duration-200 font-medium"
+                            >
+                                Cerrar
+                            </button>
+                        </div>
+                    </div>
+                </ReactModal>
+            )}
+
+            <CartModal
+                data={data}
+                cart={cart}
+                setCart={setCart}
+                modalOpen={modalOpen}
+                setModalOpen={setModalOpen}
+            />
+        </div>
+    );
+};
+export default ProductDetail;

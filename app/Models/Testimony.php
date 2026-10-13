@@ -1,0 +1,49 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+
+class Testimony extends Model
+{
+    use HasFactory, HasUuids, HasDynamic;
+
+    public $incrementing = false;
+    protected $keyType = 'string';
+
+    protected $fillable = [
+        'image',
+        'name',
+        'role',
+        'rating',
+        'description',
+        'country_id',
+        'country',
+        'visible',
+        'status'
+    ];
+    protected $casts = [
+        
+        'visible' => 'boolean',
+        'status' => 'boolean',
+    ];
+
+    static function lastTen()
+    {
+        return Testimony::select([
+            'image',
+            'name',
+            'role',
+            'rating',
+            'country',
+            'description'
+        ])
+            ->where('visible', true)
+            ->where('status', true)
+            ->orderBy('updated_at', 'desc')
+            ->take(10)
+            ->get();
+    }
+}

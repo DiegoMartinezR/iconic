@@ -1,0 +1,57 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+
+class Slider extends Model
+{
+    use HasFactory, HasUuids, HasDynamic;
+
+    public $incrementing = false;
+    protected $keyType = 'string';
+
+    protected $fillable = [
+        'name',
+        'subtitle',
+        'description',
+        'show_content',
+        'bg_type',
+        'bg_image',
+        'bg_image_mobile',
+        'bg_video',
+        'image',
+        'button_text',
+        'button_link',
+        'button_new_tab',
+        'secondary_button_text',
+        'secondary_button_link',
+        'secondary_button_new_tab',
+        'title_color',
+        'description_color',
+        'show_overlay',
+        'overlay_color',
+        'overlay_opacity',
+        'overlay_direction',
+        'overlay_type',
+        'visible',
+        'status',
+        'order_index',
+        'duration',
+        'is_seo',
+        'seo_h1',
+    ];
+
+    protected $casts = [
+
+        'visible' => 'boolean',
+        'status' => 'boolean',
+        'show_overlay' => 'boolean',
+        'show_content' => 'boolean',
+        'button_new_tab' => 'boolean',
+        'secondary_button_new_tab' => 'boolean',
+        'is_seo' => 'boolean',
+    ];
+}

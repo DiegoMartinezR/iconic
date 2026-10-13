@@ -1,0 +1,147 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\BasicController;
+use App\Http\Controllers\Controller;
+use App\Models\System;
+use App\Models\Banner;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use SoDe\Extend\File;
+use SoDe\Extend\JSON;
+use Illuminate\Http\Response as HttpResponse;
+use Illuminate\Routing\ResponseFactory;
+use Illuminate\Support\Facades\Storage;
+use SoDe\Extend\Crypto;
+use SoDe\Extend\Response;
+use SoDe\Extend\Text;
+
+class BannerController extends BasicController
+{
+    public $model = Banner::class;
+    public $reactView = 'Admin/Banners';
+    public $imageFields = ['background', 'image'];
+    public $softDeletion = false;
+
+    public function setReactViewProperties(Request $request)
+    {
+        $pages = JSON::parse(File::get(storage_path('app/pages.json')));
+        $systems = System::all(); // Agregar los sistemas para el posicionamiento
+        return [
+            'pages' => $pages,
+            'systems' => $systems,
+            'fillable' => [
+                'banners' => \App\Models\Banner::columns()
+            ]
+        ];
+    }
+
+    public function setPaginationInstance(Request $request, string $model)
+    {
+        // Devolver los banners ordenados por created_at por ahora
+        // El ordenamiento se hará en el frontend con SortByAfterField
+        return $model::with(['after'])
+            ->where('component', 'banner')
+            ->orderBy('created_at', 'asc');
+    }
+
+    public function save(Request $request): HttpResponse|ResponseFactory
+    {
+        $response = new Response();
+        try {
+            Log::info("BannerController save request data:", [
+                'body' => $request->all(),
+                'has_image' => $request->hasFile('image'),
+                'has_background' => $request->hasFile('background'),
+                'files' => array_keys($request->allFiles())
+            ]);
+            $body = $request->all();
+            unset($body['id']);
+
+            $snake_case = Text::camelToSnakeCase(str_replace('App\\Models\\', '', $this->model));
+            foreach ($this->imageFields as $field) {
+                // Ensure delete flag keys do not end up in the database json
+                unset($body[$field . '_delete']);
+
+                // Check if image should be deleted (when hidden field contains 'DELETE')
+                $deleteFlag = $request->input($field . '_delete');
+
+                if ($deleteFlag === 'DELETE' && !$request->hasFile($field)) {
+                    // Find existing record to delete old image file
+                    if ($request->id) {
+                        $existingRecord = $this->model::find($request->id);
+                        if ($existingRecord && isset($existingRecord->data[$field])) {
+                            $oldFilename = $existingRecord->data[$field];
+                            if ($oldFilename) {
+                                if (!Text::has($oldFilename, '.')) {
+                                    $oldFilename = "{$oldFilename}.enc";
+                                }
+                                $oldPath = "images/{$snake_case}/{$oldFilename}";
+                                Storage::delete($oldPath);
+                            }
+                        }
+                    }
+                    // Set field to null in database
+                    $body[$field] = null;
+                    continue;
+                }
+
+                if (!$request->hasFile($field)) continue;
+
+                // Delete old image when uploading a replacement
+                if ($request->id) {
+                    $existingRecord = $this->model::find($request->id);
+                    if ($existingRecord && isset($existingRecord->data[$field])) {
+                        $oldFilename = $existingRecord->data[$field];
+                        if ($oldFilename) {
+                            if (!Text::has($oldFilename, '.')) {
+                                $oldFilename = "{$oldFilename}.enc";
+                            }
+                            $oldPath = "images/{$snake_case}/{$oldFilename}";
+                            Storage::delete($oldPath);
+                        }
+                    }
+                }
+
+                $full = $request->file($field);
+                $body[$field] = \App\Http\Controllers\BasicController::saveImage($full, $snake_case);
+            }
+
+            $bannerJpa = $this->model::find($request->id);
+
+            $newData = $bannerJpa->data ?? [];
+
+            // Solo actualizar campos que vienen en el request
+            // Solo actualizar campos que vienen en el request
+            foreach ($body as $key => $value) {
+                // Si es un campo de imagen y es null (borrado explícito), eliminar del JSON
+                if (in_array($key, $this->imageFields) && $value === null) {
+                    unset($newData[$key]);
+                } else {
+                    $newData[$key] = $value;
+                }
+            }
+
+            $this->model::where('id', $request->id)
+                ->update([
+                    'name' => $request->name,
+                    'subtitle' => $request->subtitle,
+                    'description' => $request->multi_description == 1 ? JSON::stringify($body['description']) : $request->description,
+                    'data' => $newData
+                ]);
+
+            $response->status = 200;
+            $response->message = 'Operacion correcta';
+            $this->clearCache();
+        } catch (\Throwable $th) {
+            $response->status = 400;
+            $response->message = $th->getMessage();
+        } finally {
+            return response(
+                $response->toArray(),
+                $response->status
+            );
+        }
+    }
+}

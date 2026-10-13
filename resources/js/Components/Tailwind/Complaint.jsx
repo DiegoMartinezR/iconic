@@ -1,0 +1,41 @@
+import React from "react";
+
+const ComplaintStech = React.lazy(() => import("./Complaints/ComplaintStech"));
+const ComplaintSimple = React.lazy(
+    () => import("./Complaints/ComplaintSimple"),
+);
+const ComplaintRainstar = React.lazy(
+    () => import("./Complaints/ComplaintRainstar"),
+);
+const ComplaintTwenty = React.lazy(
+    () => import("./Complaints/ComplaintTwenty"),
+);
+const ComplaintRhino = React.lazy(
+    () => import("./Complaints/ComplaintRhino"),
+);
+const Complaint = ({ which, data, generals }) => {
+    const getComplaint = () => {
+        switch (which) {
+            case "ComplaintRainstar":
+                return <ComplaintRainstar data={data} generals={generals} />;
+            case "ComplaintStech":
+                return <ComplaintStech data={data} generals={generals} />;
+            case "ComplaintSimple":
+                return <ComplaintSimple data={data} generals={generals} />;
+            case "ComplaintTwenty":
+                return <ComplaintTwenty data={data} generals={generals} />;
+            case "ComplaintRhino":
+                return <ComplaintRhino data={data} generals={generals} />;
+
+            default:
+                return (
+                    <div className="w-full px-[5%] replace-max-w-here p-4 mx-auto">
+                        - No Hay componente <b>{which}</b> -
+                    </div>
+                );
+        }
+    };
+    return getComplaint();
+};
+
+export default Complaint;

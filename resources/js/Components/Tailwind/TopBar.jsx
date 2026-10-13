@@ -1,0 +1,124 @@
+import React from "react";
+
+const TopBarSimple = React.lazy(() => import("./TopBars/TopBarSimple"));
+const TopBarSocials = React.lazy(() => import("./TopBars/TopBarSocials"));
+const TopBarCart = React.lazy(() => import("./TopBars/TopBarCart"));
+const TopBarCopyright = React.lazy(() => import("./TopBars/TopBarCopyright"));
+const TopBarPanni = React.lazy(() => import("./TopBars/TopBarPanni"));
+const TopBarCopyrightSocials = React.lazy(
+    () => import("./TopBars/TopBarCopyrightSocials"),
+);
+const TopBarPages = React.lazy(() => import("./TopBars/TopBarPages"));
+const TopBarAddress = React.lazy(() => import("./TopBars/TopBarAddress"));
+const TopBarMarquee = React.lazy(() => import("./TopBars/TopBarMarquee"));
+const TopBarSimpleMarquee = React.lazy(() => import("./TopBars/TopBarSimpleMarquee"));
+const TopBarStoreMode = React.lazy(() => import("./TopBars/TopBarStoreMode"));
+
+const TopBar = ({
+    data,
+    which,
+    items,
+    generals,
+    setCart,
+    cart,
+    subTotal,
+    igv,
+    perception,
+    totalPrice,
+    isUser,
+    pages,
+    stores,
+}) => {
+    const getTopBar = () => {
+        switch (which) {
+            case "TopBarSimple":
+                return <TopBarSimple key="TopBarSimple" data={data} generals={generals} />;
+            case "TopBarSimpleMarquee":
+                return <TopBarSimpleMarquee key="TopBarSimpleMarquee" data={data} generals={generals} />;
+            case "TopBarSocials":
+                return (
+                    <TopBarSocials
+                        key="TopBarSocials"
+                        items={items}
+                        data={data}
+                    />
+                );
+            case "TopBarCart":
+                return (
+                    <TopBarCart
+                        data={data}
+                        items={items}
+                        cart={cart}
+                        setCart={setCart}
+                        subTotal={subTotal}
+                        igv={igv}
+                        perception={perception}
+                        totalPrice={totalPrice}
+                        isUser={isUser}
+                    />
+                );
+            case "TopBarCopyright":
+                return (
+                    <TopBarCopyright
+                        data={data}
+                        items={items}
+                        cart={cart}
+                        setCart={setCart}
+                        subTotal={subTotal}
+                        igv={igv}
+                        perception={perception}
+                        totalPrice={totalPrice}
+                        isUser={isUser}
+                        generals={generals}
+                    />
+                );
+            case "TopBarCopyrightSocials":
+                return (
+                    <TopBarCopyrightSocials
+                        items={items}
+                        cart={cart}
+                        setCart={setCart}
+                        isUser={isUser}
+                    />
+                );
+            case "TopBarPanni":
+                return (
+                    <TopBarPanni
+                        data={data}
+                        generals={generals}
+                        items={items}
+                        cart={cart}
+                        setCart={setCart}
+                        subTotal={subTotal}
+                        igv={igv}
+                        perception={perception}
+                        totalPrice={totalPrice}
+                        isUser={isUser}
+                    />
+                );
+            case "TopBarPages":
+                return <TopBarPages items={items} data={data} pages={pages} generals={generals} />;
+            case "TopBarAddress":
+                return <TopBarAddress key="TopBarAddress" data={data} generals={generals} />;
+            case "TopBarMarquee":
+                return <TopBarMarquee key="TopBarMarquee" data={data} generals={generals} />;
+            case "TopBarStoreMode":
+                return (
+                    <TopBarStoreMode
+                        key="TopBarStoreMode"
+                        data={data}
+                        stores={stores || items}
+                    />
+                );
+            default:
+                return (
+                    <div className="w-full px-[5%] replace-max-w-here p-4 mx-auto">
+                        - No Hay componente <b>{which}</b> -
+                    </div>
+                );
+        }
+    };
+    return getTopBar();
+};
+
+export default TopBar;

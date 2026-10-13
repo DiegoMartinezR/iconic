@@ -1,0 +1,489 @@
+import React, { useRef, useState } from "react";
+import Tippy from "@tippyjs/react";
+import {
+    CircleCheckBig,
+    Mail,
+    Phone,
+    MapPin,
+    Clock,
+    ArrowUpRight,
+    Loader2,
+} from "lucide-react";
+import { toast } from "sonner";
+import SubscriptionsRest from "../../../Actions/SubscriptionsRest";
+import Global from "../../../Utils/Global";
+import { SocialIcon } from "../../../Utils/SocialHelper";
+import JobApplicationModal from "../Modals/JobApplicationModal";
+import SellerJoinModal from "../Modals/SellerJoinModal";
+
+const FooterRainstar = ({ pages = [], generals = [], data, socials = [] }) => {
+    const subscriptionsRest = new SubscriptionsRest();
+    const emailRef = useRef();
+    const currentYear = new Date().getFullYear();
+
+    const [saving, setSaving] = useState(false);
+    const [jobModalOpen, setJobModalOpen] = useState(false);
+    const [sellerModalOpen, setSellerModalOpen] = useState(false);
+
+    // Efecto para escuchar clics globales en enlaces que apuntan al modal
+    React.useEffect(() => {
+        const handleGlobalLinkClick = (e) => {
+            const link = e.target.closest("a");
+            if (!link) return;
+            const href = link.getAttribute("href");
+
+            if (href === "#jobapplicationmodal") {
+                e.preventDefault();
+                setJobModalOpen(true);
+            } else if (
+                href === "#sellerjoinmodal" ||
+                href === "#une-a-nosotros"
+            ) {
+                e.preventDefault();
+                setSellerModalOpen(true);
+            }
+        };
+
+        document.addEventListener("click", handleGlobalLinkClick);
+
+        // Verificar hash inicial
+        const checkHash = () => {
+            const hash = window.location.hash;
+            if (hash === "#jobapplicationmodal") {
+                setJobModalOpen(true);
+            } else if (
+                hash === "#sellerjoinmodal" ||
+                hash === "#une-a-nosotros"
+            ) {
+                setSellerModalOpen(true);
+            }
+        };
+
+        checkHash();
+
+        // Escuchar cambios de hash (navegación SPA)
+        window.addEventListener("hashchange", checkHash);
+
+        return () => {
+            document.removeEventListener("click", handleGlobalLinkClick);
+            window.removeEventListener("hashchange", checkHash);
+        };
+    }, []);
+
+    const onEmailSubmit = async (e) => {
+        e.preventDefault();
+        if (!emailRef.current.value) return;
+
+        setSaving(true);
+        const result = await subscriptionsRest.save({
+            email: emailRef.current.value,
+            status: 1,
+        });
+        setSaving(false);
+
+        if (!result) return;
+
+        toast.success("¡Suscrito!", {
+            description: `Te has suscrito a ${Global.APP_NAME}.`,
+            icon: <CircleCheckBig className="h-5 w-5 text-success" />,
+            duration: 3000,
+            position: "top-center",
+        });
+
+        emailRef.current.value = "";
+    };
+
+    // Data from Generals
+    const footerDescription =
+        generals.find((g) => g.correlative === "footer_description")
+            ?.description || "";
+    const address =
+        generals.find((g) => g.correlative === "address")?.description || "";
+    const openingHours =
+        generals.find((g) => g.correlative === "opening_hours")?.description ||
+        "";
+    const phoneContact =
+        generals.find((g) => g.correlative === "phone_contact")?.description ||
+        "";
+    const emailContact =
+        generals.find((g) => g.correlative === "email_contact")?.description ||
+        "";
+    const copyright =
+        generals.find((g) => g.correlative === "copyright")?.description ||
+        `© ${currentYear} ${Global.APP_NAME}. Todos los derechos reservados.`;
+
+    return (
+        <footer
+            id={data?.element_id || null}
+            className={`bg-accent text-white  pb-8 overflow-hidden ${data?.class || "pt-24"}`}
+        >
+            <div className="w-full mx-auto px-primary 2xl:px-0 2xl:max-w-7xl">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-10 mb-24">
+                    {/* Brand Section */}
+                    <div className="lg:col-span-4 space-y-8">
+                        <div className="mb-8">
+                            <img
+                                src={`/assets/resources/logo-footer.png?v=${crypto.randomUUID()}`}
+                                alt={Global.APP_NAME}
+
+                                className="h-12 md:h-16 w-auto object-contain"
+                                onError={(e) => {
+                                    e.target.onerror = null;
+                                    e.target.src = "/assets/img/logo-bk.svg";
+                                }}
+                            />
+                        </div>
+                        <p className="text-white text-base ">
+                            {footerDescription ||
+                                ""}
+                        </p>
+
+                        <div className="pt-4">
+                            <h4 className="text-xs font-bold uppercase  text-white mb-6">
+                                Síguenos
+                            </h4>
+                            <div className="flex gap-4">
+                                {socials.map((social, index) => (
+                                    <Tippy key={index} content={social.name}>
+                                        <a
+                                            href={social.link}
+                                            aria-label={`${social.name} para ${Global.APP_NAME}`}
+
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="w-10 h-10 rounded-full border border-white flex items-center justify-center hover:bg-white hover:text-black transition-all duration-500 group"
+                                        >
+                                            <SocialIcon
+                                                social={social}
+                                                className="w-4 h-4 text-current group-hover:scale-110 transition-transform"
+                                                fallbackClassName="text-base group-hover:scale-110 transition-transform"
+                                            />
+
+                                            {/* Texto invisible para diseño, pero visible para SEO y Accesibilidad */}
+                                            <span className="sr-only">
+                                                Visitar el perfil de {social.name} de {Global.APP_NAME}
+                                            </span>
+                                        </a>
+                                    </Tippy>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Navigation Section */}
+                    <div className="lg:col-span-2">
+                        <h4 className="text-sm font-bold uppercase  text-white mb-8">
+                            Explorar
+                        </h4>
+                        <ul className="space-y-4">
+                            {pages
+                                .filter((p) => p.menuable)
+                                .map((page, idx) => (
+                                    <li key={idx}>
+                                        <a
+                                            href={page.pseudo_path || page.path}
+                                            className="text-white hover:text-white transition-colors flex items-center justify-between group text-sm"
+                                        >
+                                            <span className="font-medium">
+                                                {page.name}
+                                            </span>
+                                            <ArrowUpRight
+                                                size={12}
+                                                className="opacity-0 group-hover:opacity-100 transition-opacity"
+                                            />
+                                        </a>
+                                    </li>
+                                ))}
+
+                            {data?.show_join_us !== false && (
+                                <li>
+                                    <button
+                                        onClick={() => setSellerModalOpen(true)}
+                                        className="text-white hover:text-white transition-colors flex items-center justify-between group text-sm w-full text-left"
+                                    >
+                                        <span className="font-medium">
+                                            Únete a Nosotros
+                                        </span>
+                                        <ArrowUpRight
+                                            size={12}
+                                            className="opacity-0 group-hover:opacity-100 transition-opacity"
+                                        />
+                                    </button>
+                                </li>
+                            )}
+                        </ul>
+                    </div>
+
+                    {/* Legal Section */}
+                    <div className="lg:col-span-2">
+                        <h4 className="text-sm font-bold uppercase  text-white mb-8">
+                            Legal
+                        </h4>
+                        <ul className="space-y-6">
+                            {(data?.show_privacy_policy !== false && data?.show_privacy_policy !== 0 && data?.show_privacy_policy !== "0" && data?.show_privacy_policy !== "false") && (
+                                <li>
+                                    <a
+                                        href="/politica-de-privacidad"
+                                        className="text-white hover:text-white transition-colors flex items-center justify-between group text-sm w-full text-left"
+                                    >
+                                        <span className="font-medium">
+                                            Política de Privacidad
+                                        </span>
+                                        <ArrowUpRight
+                                            size={12}
+                                            className="opacity-0 group-hover:opacity-100 transition-opacity"
+                                        />
+                                    </a>
+                                </li>
+                            )}
+
+                            {(data?.show_terms_conditions !== false && data?.show_terms_conditions !== 0 && data?.show_terms_conditions !== "0" && data?.show_terms_conditions !== "false") && (
+                                <li>
+                                    <a
+                                        href="/terminos-y-condiciones"
+                                        className="text-white hover:text-white transition-colors flex items-center justify-between group text-sm w-full text-left"
+                                    >
+                                        <span className="font-medium">
+                                            Términos y Condiciones
+                                        </span>
+                                        <ArrowUpRight
+                                            size={12}
+                                            className="opacity-0 group-hover:opacity-100 transition-opacity"
+                                        />
+                                    </a>
+                                </li>
+                            )}
+
+                            {(data?.show_return_policy !== false && data?.show_return_policy !== 0 && data?.show_return_policy !== "0" && data?.show_return_policy !== "false") && (
+                                <li>
+                                    <a
+                                        href="/politicas-de-devolucion-y-cambio"
+                                        className="text-white hover:text-white transition-colors flex items-center justify-between group text-sm w-full text-left"
+                                    >
+                                        <span className="font-medium">
+                                            Políticas de Devolución y Cambio
+                                        </span>
+                                        <ArrowUpRight
+                                            size={12}
+                                            className="opacity-0 group-hover:opacity-100 transition-opacity"
+                                        />
+                                    </a>
+                                </li>
+                            )}
+
+                            {(data?.show_shipping_policy !== false && data?.show_shipping_policy !== 0 && data?.show_shipping_policy !== "0" && data?.show_shipping_policy !== "false") && (
+                                <li>
+                                    <a
+                                        href="/politicas-de-envio"
+                                        className="text-white hover:text-white transition-colors flex items-center justify-between group text-sm w-full text-left"
+                                    >
+                                        <span className="font-medium">
+                                            Políticas de Envío
+                                        </span>
+                                        <ArrowUpRight
+                                            size={12}
+                                            className="opacity-0 group-hover:opacity-100 transition-opacity"
+                                        />
+                                    </a>
+                                </li>
+                            )}
+
+                            {(data?.show_complaints_book !== false && data?.show_complaints_book !== 0 && data?.show_complaints_book !== "0" && data?.show_complaints_book !== "false") && (
+                                <li className="pt-2">
+                                    <div className="space-y-4">
+                                        <a
+                                            href="/libro-reclamaciones"
+                                            className="text-white hover:text-white transition-colors flex items-center justify-between group text-xs font-bold  uppercase"
+                                        >
+                                            <span>Libro de Reclamaciones</span>
+                                            <ArrowUpRight
+                                                size={14}
+                                                className="opacity-0 group-hover:opacity-100 transition-opacity"
+                                            />
+                                        </a>
+                                        <a
+                                            href="/libro-reclamaciones"
+                                            className="block  hover:opacity-80 transition-opacity"
+                                        >
+                                            <img
+                                                src="/assets/resources/libro-reclamaciones.png"
+                                                alt="Libro de Reclamaciones"
+
+                                                className="w-40 lg:w-full h-auto object-contain transition-all duration-300"
+                                                onError={(e) =>
+                                                (e.target.style.display =
+                                                    "none")
+                                                }
+                                            />
+                                        </a>
+                                    </div>
+                                </li>
+                            )}
+                        </ul>
+                    </div>
+
+                    {/* Newsletter + Contact Section */}
+                    <div className="lg:col-span-4 space-y-12">
+                        <div>
+                            <h4 className="text-sm font-bold uppercase  text-white mb-8">
+                                Suscríbete
+                            </h4>
+                            <p className="text-white mb-6 text-sm ">
+                                Únete a nuestra comunidad exclusiva y recibe
+                                lanzamientos y eventos privados.
+                            </p>
+                            <form
+                                onSubmit={onEmailSubmit}
+                                className="relative group"
+                            >
+                                <style dangerouslySetInnerHTML={{
+                                    __html: `
+                                    .footer-email-input:-webkit-autofill,
+                                    .footer-email-input:-webkit-autofill:hover,
+                                    .footer-email-input:-webkit-autofill:focus,
+                                    .footer-email-input:-webkit-autofill:active {
+                                        -webkit-text-fill-color: white !important;
+                                        transition: background-color 9999s ease-in-out 0s !important;
+                                    }
+                                ` }} />
+                                <input
+                                    ref={emailRef}
+                                    type="email"
+                                    placeholder="TU CORREO"
+                                    required
+                                    autoComplete="off"
+                                    className="footer-email-input w-full bg-transparent border-b border-white py-3 pr-10 text-xs focus:border-white focus:outline-none transition-colors placeholder:text-white  font-bold"
+                                    disabled={saving}
+                                />
+                                <button
+                                    type="submit"
+                                    disabled={saving}
+                                    aria-label="Suscribirse al boletín"
+                                    title="Suscribirse al boletín"
+                                    className="absolute right-0 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center hover:scale-110 transition-transform"
+                                >
+                                    {saving ? (
+                                        <Loader2
+                                            size={16}
+                                            className="animate-spin text-white"
+                                        />
+                                    ) : (
+                                        <ArrowUpRight size={16} />
+                                    )}
+                                </button>
+                            </form>
+                        </div>
+
+                        <div>
+                            <h4 className="text-sm font-bold uppercase  text-white mb-8">
+                                Contacto
+                            </h4>
+                            <div className="space-y-6 text-sm tracking-wide">
+                                {address && (
+                                    <div className="flex items-center gap-4 group">
+                                        <MapPin
+                                            size={18}
+                                            className="text-white shrink-0 group-hover:text-white transition-colors"
+                                        />
+                                        <p className="text-white  group-hover:text-gray-200 transition-colors  text-xs font-medium tracking-wider">
+                                            {address}
+                                        </p>
+                                    </div>
+                                )}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div className="space-y-4">
+                                        {phoneContact &&
+                                            phoneContact
+                                                .split(",")
+                                                .map((phone, idx) => (
+                                                    <a
+                                                        key={idx}
+                                                        href={`tel:${phone.trim()}`}
+                                                        className="flex items-center gap-4 group"
+                                                    >
+                                                        <Phone
+                                                            size={18}
+                                                            className="text-white shrink-0 group-hover:text-white transition-colors"
+                                                        />
+                                                        <span className="text-white group-hover:text-gray-200 transition-colors font-bold text-xs ">
+                                                            {phone.trim()}
+                                                        </span>
+                                                    </a>
+                                                ))}
+                                    </div>
+                                    <div className="space-y-4">
+                                        {emailContact &&
+                                            emailContact
+                                                .split(",")
+                                                .map((email, idx) => (
+                                                    <a
+                                                        key={idx}
+                                                        href={`mailto:${email.trim()}`}
+                                                        className="flex items-center gap-4 group"
+                                                    >
+                                                        <Mail
+                                                            size={18}
+                                                            className="text-white shrink-0 group-hover:text-white transition-colors"
+                                                        />
+                                                        <span className="text-white group-hover:text-gray-200 transition-colors font-bold text-xs tracking-wider truncate">
+                                                            {email.trim()}
+                                                        </span>
+                                                    </a>
+                                                ))}
+                                    </div>
+                                </div>
+                                {openingHours && (
+                                    <div className="flex items-start gap-4 group pt-2 border-t border-white mt-6 overflow-hidden">
+                                        <Clock
+                                            size={18}
+                                            className="text-white mt-1 shrink-0 group-hover:text-white transition-colors"
+                                        />
+                                        <div className="space-y-1">
+                                            <p className="text-xs font-bold uppercase  text-white group-hover:text-white transition-colors">
+                                                Horarios de atención
+                                            </p>
+                                            <p className="text-white  group-hover:text-gray-200 transition-colors whitespace-pre-line text-xs lowercase first-letter:uppercase font-medium">
+                                                {openingHours}
+                                            </p>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Bottom Section */}
+                <div className="pt-8 border-t border-white flex flex-col md:flex-row justify-center items-center gap-8">
+                    <div className="flex flex-col md:flex-row items-center justify-center gap-2 text-xs font-medium  text-white">
+                        <span>{copyright}</span>
+                        <span className="hidden md:block opacity-30">|</span>
+                        <span className="flex items-center gap-1">
+                            Powered by{" "}
+                            <a
+                                href="https://rhino.pe/"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="hover:text-white transition-colors"
+                            >
+                                RHINO TECHNOLOGY
+                            </a>
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <JobApplicationModal
+                isOpen={jobModalOpen}
+                onClose={() => setJobModalOpen(false)}
+            />
+
+            <SellerJoinModal
+                isOpen={sellerModalOpen}
+                onClose={() => setSellerModalOpen(false)}
+            />
+        </footer>
+    );
+};
+
+export default FooterRainstar;

@@ -1,0 +1,1 @@
+import{u as r,S as e,_ as a}from"./Select-ef7c0426.esm-B44qMu_W.js";import{r as t}from"./vendor-react-XBa-kXBa.js";var o=t.forwardRef(function(o,s){var f=r(o);return t.createElement(e,a({ref:s},f))});export{o as S};

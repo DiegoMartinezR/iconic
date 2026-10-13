@@ -1,0 +1,384 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Item;
+use App\Models\Sale;
+use App\Models\SaleDetail;
+use App\Models\SaleStatus;
+use App\Models\User;
+use App\Models\General;
+use App\Notifications\PurchaseSummaryNotification;
+use App\Helpers\NotificationHelper;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Http;
+use App\Helpers\TaxHelper;
+
+class OpenPayController extends Controller
+{
+    private function getOpenPayCredentials()
+    {
+        $merchantId = General::where('correlative', 'checkout_openpay_merchant_id')->first();
+        $privateKey = General::where('correlative', 'checkout_openpay_private_key')->first();
+        $publicKey = General::where('correlative', 'checkout_openpay_public_key')->first();
+        $enabled = General::where('correlative', 'checkout_openpay')->first();
+        $isSandbox = General::where('correlative', 'checkout_openpay_sandbox_mode')->first();
+        
+        return [
+            'merchant_id' => $merchantId ? $merchantId->description : null,
+            'private_key' => $privateKey ? $privateKey->description : null,
+            'public_key' => $publicKey ? $publicKey->description : null,
+            'enabled' => $enabled ? $enabled->description === 'true' : false,
+            'is_sandbox' => $isSandbox ? in_array(strtolower($isSandbox->description), ['true', '1', 'on', 'yes', 'si']) : false,
+        ];
+    }
+
+    private function generateOrderNumber()
+    {
+        return 'OP-' . strtoupper(uniqid());
+    }
+
+    public function createCharge(Request $request)
+    {
+        try {
+            Log::info('OpenPay - Iniciando proceso de pago', [
+                'request' => $request->all()
+            ]);
+
+            // Validar stock antes de continuar
+            foreach ($request->cart as $item) {
+                $itemId = is_array($item) ? $item['id'] ?? null : $item->id ?? null;
+                $itemQuantity = is_array($item) ? $item['quantity'] ?? null : $item->quantity ?? null;
+                $itemType = is_array($item) ? $item['type'] ?? 'item' : $item->type ?? 'item';
+
+                if ($itemType !== 'combo') {
+                    $itemJpa = Item::find($itemId);
+                    if ($itemJpa && !$itemJpa->stock_unlimited && $itemJpa->stock < $itemQuantity) {
+                        return response()->json([
+                            'status' => false,
+                            'message' => "El producto {$itemJpa->name} no tiene suficiente stock disponible."
+                        ], 400);
+                    }
+                }
+            }
+
+            $credentials = $this->getOpenPayCredentials();
+            
+            if (!$credentials['enabled']) {
+                Log::error('OpenPay - Método de pago deshabilitado');
+                return response()->json([
+                    'status' => false,
+                    'message' => 'OpenPay está deshabilitado'
+                ], 400);
+            }
+
+            if (!$credentials['merchant_id'] || !$credentials['private_key']) {
+                Log::error('OpenPay - Credenciales no configuradas');
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Credenciales de OpenPay no configuradas'
+                ], 400);
+            }
+
+            $discountAmount = 0;
+            if ($request->coupon_id && $request->coupon_discount > 0) {
+                $discountAmount = (float) $request->coupon_discount;
+            }
+            
+            // IMPORTANTE: Usar number_format para forzar exactamente 2 decimales como string
+            // y luego convertir a float. Esto evita problemas de precisión de punto flotante
+            // que ocurren cuando JavaScript envía valores como 7.29999999999999982236...
+            $requestAmount = (float) number_format((float) $request->amount, 2, '.', '');
+            $requestDelivery = (float) number_format((float) $request->delivery, 2, '.', '');
+            $discountAmount = (float) number_format((float) $discountAmount, 2, '.', '');
+
+            // Generar número de orden
+            $orderNumber = $request->orderNumber ?? $this->generateOrderNumber();
+            
+            // Crear registro de venta con estado "pendiente"
+            $saleStatusPendiente = SaleStatus::getByName('Pendiente');
+
+            // Calcular impuestos y empaque usando TaxHelper
+            $taxBreakdown = TaxHelper::calculate($request->cart, $request->packaging_id);
+            
+            // Usar el total calculado que ya incluye impuestos y empaque
+            $finalAmount = $taxBreakdown['total'] - $discountAmount;
+
+            $sale = Sale::create([
+                'code' => $orderNumber,
+                'user_id' => $request->user_id,
+                'name' => $request->name,
+                'lastname' => $request->lastname,
+                'fullname' => $request->fullname,
+                'email' => $request->email,
+                'phone' => $request->phone,
+                'country' => $request->country,
+                'department' => $request->department,
+                'province' => $request->province,
+                'district' => $request->district,
+                'ubigeo' => $request->ubigeo,
+                'address' => $request->address,
+                'number' => $request->number,
+                'reference' => $request->reference,
+                'comment' => $request->comment,
+                'amount' => $finalAmount,
+                'delivery' => $requestDelivery,
+                'delivery_type' => $request->delivery_type ?? 'domicilio',
+                'additional_shipping_cost' => round((float)($request->additional_shipping_cost ?? 0), 2),
+                'additional_shipping_description' => $request->additional_shipping_description ?? '',
+                'payment_status' => 'pendiente',
+                'status_id' => $saleStatusPendiente ? $saleStatusPendiente->id : null,
+                'invoiceType' => $request->invoiceType,
+                'documentType' => $request->documentType,
+                'document' => $request->document,
+                'businessName' => $request->businessName,
+                'payment_method' => 'openpay',
+                'coupon_id' => $request->coupon_id ?? null,
+                'coupon_discount' => $discountAmount,
+                'promotion_discount' => round((float)($request->promotion_discount ?? 0), 2),
+                'total_amount' => $finalAmount,
+                'igv_amount' => $taxBreakdown['igv_amount'],
+                'perception_amount' => $taxBreakdown['perception_amount'],
+                'packaging_amount' => $taxBreakdown['packaging_amount'],
+                'packaging_id' => $request->packaging_id,
+            ]);
+           
+            // Registrar detalles de la venta
+            foreach ($request->cart as $item) {
+                $itemData = is_array($item) ? $item : (array) $item;
+                
+                SaleDetail::create([
+                    'sale_id' => $sale->id,
+                    'item_id' => $itemData['id'] ?? null,
+                    'name' => $itemData['name'] ?? '',
+                    'price' => $itemData['final_price'] ?? 0,
+                    'quantity' => $itemData['quantity'] ?? 1,
+                    'colors' => $itemData['color'] ?? null,
+                ]);
+            }
+
+            // Validar que venga el token de la tarjeta
+            if (!$request->token && !$request->source_id) {
+                Log::error('OpenPay - Token no proporcionado', [
+                    'request_keys' => array_keys($request->all())
+                ]);
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Se requiere el token de la tarjeta'
+                ], 400);
+            }
+
+            // Validar device_session_id (requerido para antifraude)
+            if (!$request->device_session_id) {
+                Log::error('OpenPay - device_session_id no proporcionado');
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Se requiere el device_session_id para validación antifraude'
+                ], 400);
+            }
+
+            // Preparar datos para OpenPay
+            // Usar el total calculado internamente para mayor seguridad
+            $amount = round($finalAmount, 2);
+            
+            Log::info('OpenPay - Amount a enviar', [
+                'request_amount_frontend' => $request->amount,
+                'tax_breakdown_total' => $taxBreakdown['total'],
+                'discountAmount' => $discountAmount,
+                'final_amount' => $amount,
+                'amount_type' => gettype($amount)
+            ]);
+            
+            // URL base según ambiente (producción o sandbox) - OpenPay Perú
+            $baseUrl = $credentials['is_sandbox']
+                ? 'https://sandbox-api.openpay.pe/v1'
+                : 'https://api.openpay.pe/v1';
+            
+            $url = "{$baseUrl}/{$credentials['merchant_id']}/charges";
+
+            // Datos del cargo según documentación de OpenPay
+            // IMPORTANTE: Usar number_format para garantizar exactamente 2 decimales
+            // y evitar que json_encode serialice con muchos decimales
+            $chargeData = [
+                'method' => 'card',
+                'source_id' => $request->source_id ?? $request->token,  // Token de la tarjeta (source_id es el nombre correcto en OpenPay)
+                'amount' => (float) number_format($amount, 2, '.', ''),
+                'currency' => 'PEN',  // Moneda de Perú
+                'description' => "Pedido {$orderNumber}",
+                'order_id' => $orderNumber,
+                'device_session_id' => $request->device_session_id,  // Requerido para antifraude
+                'customer' => [
+                    'name' => $request->name,
+                    'last_name' => $request->lastname,
+                    'email' => $request->email,
+                    'phone_number' => $request->phone ?? '999999999',
+                    'address' => [
+                        'line1' => $request->address ?? 'Sin dirección',
+                        'line2' => $request->number ?? '',
+                        'line3' => $request->reference ?? '',
+                        'postal_code' => '15001',  // Código postal Lima por defecto
+                        'city' => $request->district ?? 'Lima',
+                        'state' => $request->department ?? 'Lima',
+                        'country_code' => 'PE',
+                    ],
+                ],
+            ];
+
+            Log::info('OpenPay - Enviando cargo', [
+                'url' => $url,
+                'data' => $chargeData,
+                'amount_check' => number_format($amount, 2, '.', '')
+            ]);
+
+            // Realizar petición a OpenPay
+            // Usamos withBody para tener control total sobre la serialización JSON
+            // y evitar problemas de precisión de punto flotante
+            $jsonBody = json_encode($chargeData, JSON_PRESERVE_ZERO_FRACTION);
+            // Reemplazar el amount con precisión exacta usando regex
+            $jsonBody = preg_replace(
+                '/"amount":\s*[\d.]+/',
+                '"amount":' . number_format($amount, 2, '.', ''),
+                $jsonBody
+            );
+            
+            Log::info('OpenPay - JSON Body final', ['body' => $jsonBody]);
+            
+            $response = Http::withBasicAuth(
+                $credentials['private_key'],
+                '' // OpenPay usa la private key como usuario y contraseña vacía
+            )->withBody($jsonBody, 'application/json')->post($url);
+
+            $responseData = $response->json();
+
+            Log::info('OpenPay - Respuesta del cargo', [
+                'status' => $response->status(),
+                'response' => $responseData
+            ]);
+
+            if ($response->successful() && isset($responseData['status'])) {
+                if ($responseData['status'] === 'completed' || $responseData['status'] === 'in_progress') {
+                    // Actualizar estado de la venta
+                    $saleStatusPagado = SaleStatus::getByName('Pagado');
+                    $sale->update([
+                        'payment_status' => 'pagado',
+                        'status_id' => $saleStatusPagado ? $saleStatusPagado->id : $sale->status_id,
+                        'transaction_id' => $responseData['id'] ?? null,
+                    ]);
+
+                    // Actualizar stock de productos
+                    foreach ($request->cart as $item) {
+                        $itemData = is_array($item) ? $item : (array) $item;
+                        $producto = Item::find($itemData['id']);
+                        
+                        if ($producto && !$producto->stock_unlimited) {
+                            $producto->stock -= $itemData['quantity'];
+                            $producto->save();
+                        }
+                    }
+
+                    // Enviar notificaciones
+                    try {
+                        $saleDetails = $sale->details;
+                        NotificationHelper::sendToClientAndAdmin($sale, new PurchaseSummaryNotification($sale, $saleDetails));
+                    } catch (\Exception $e) {
+                        Log::error('Error enviando notificaciones de compra', [
+                            'error' => $e->getMessage()
+                        ]);
+                    }
+
+                    return response()->json([
+                        'status' => true,
+                        'message' => 'Pago procesado exitosamente',
+                        'sale' => $sale,
+                        'code' => $orderNumber,
+                        'delivery' => $request->delivery,
+                        'additional_shipping_cost' => $request->additional_shipping_cost ?? 0,
+                        'additional_shipping_description' => $request->additional_shipping_description ?? '',
+                        'transaction_id' => $responseData['id'] ?? null,
+                    ]);
+                }
+            }
+
+            // Si llegamos aquí, el pago falló
+            $sale->update([
+                'payment_status' => 'rechazado',
+            ]);
+
+            return response()->json([
+                'status' => false,
+                'message' => $responseData['description'] ?? 'Error al procesar el pago',
+                'error' => $responseData
+            ], 400);
+
+        } catch (\Exception $e) {
+            Log::error('OpenPay - Error en createCharge', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'status' => false,
+                'message' => 'Error al procesar el pago: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function webhook(Request $request)
+    {
+        try {
+            Log::info('OpenPay - Webhook recibido', [
+                'data' => $request->all()
+            ]);
+
+            $transactionId = $request->transaction['id'] ?? null;
+            $status = $request->transaction['status'] ?? null;
+
+            if (!$transactionId) {
+                return response()->json(['status' => 'error', 'message' => 'No transaction ID'], 400);
+            }
+
+            $sale = Sale::where('transaction_id', $transactionId)->first();
+
+            if (!$sale) {
+                Log::warning('OpenPay - Venta no encontrada', ['transaction_id' => $transactionId]);
+                return response()->json(['status' => 'ok']);
+            }
+
+            // Actualizar estado según el webhook
+            if ($status === 'completed') {
+                $saleStatusPagado = SaleStatus::getByName('Pagado');
+                $sale->update([
+                    'payment_status' => 'pagado',
+                    'status_id' => $saleStatusPagado ? $saleStatusPagado->id : $sale->status_id,
+                ]);
+
+                // Actualizar stock si no se había hecho antes
+                if ($sale->payment_status !== 'pagado') {
+                    foreach ($sale->details as $detail) {
+                        $producto = Item::find($detail->item_id);
+                        if ($producto && !$producto->stock_unlimited) {
+                            $producto->stock -= $detail->quantity;
+                            $producto->save();
+                        }
+                    }
+                }
+            } elseif (in_array($status, ['failed', 'cancelled', 'refunded'])) {
+                $sale->update([
+                    'payment_status' => 'rechazado',
+                ]);
+            }
+
+            return response()->json(['status' => 'ok']);
+
+        } catch (\Exception $e) {
+            Log::error('OpenPay - Error en webhook', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json(['status' => 'error', 'message' => $e->getMessage()], 500);
+        }
+    }
+}

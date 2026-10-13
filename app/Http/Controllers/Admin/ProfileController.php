@@ -1,0 +1,116 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\BasicController;
+use App\Models\User;
+use Exception;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Storage;
+use SoDe\Extend\Crypto;
+use SoDe\Extend\Response;
+use Illuminate\Http\Response as HttpResponse;
+use Illuminate\Routing\ResponseFactory as RoutingResponseFactory;
+
+class ProfileController extends BasicController
+{
+    public $model = User::class;
+    public $reactView = 'Admin/Profile';
+
+    public function thumbnail(Request $request, $uuid)
+    {
+        try {
+            $content = Storage::get('profile/thumbnail/' . $uuid . '.img');
+            if (!$content) throw new Exception('Perfil no encontrado');
+            return response($content, 200, [
+                'Content-Type' => 'application/octet-stream'
+            ]);
+        } catch (\Throwable $th) {
+            $content = Storage::get('utils/user-404.svg');
+            return response($content, 200, [
+                'Content-Type' => 'image/svg+xml'
+            ]);
+        }
+    }
+
+    public function full(Request $request, $uuid)
+    {
+        try {
+            $content = Storage::get('profile/' . $uuid . '.img');
+            if (!$content) throw new Exception('Perfil no encontrado');
+            return response($content, 200, [
+                'Content-Type' => 'application/octet-stream'
+            ]);
+        } catch (\Throwable $th) {
+            $content = Storage::get('utils/user-404.svg');
+            return response($content, 200, [
+                'Content-Type' => 'image/svg+xml'
+            ]);
+        }
+    }
+
+    public function saveProfile(Request $request)
+    {
+        $response = new Response();
+        try {
+            $userId = Auth::user()->id;
+            $userJpa = User::find($userId);
+            
+            // Usar el UUID del usuario en lugar de relative_id
+            $imageId = $userJpa->uuid;
+
+            $thumbnail = $request->file('thumbnail');
+            $full = $request->file('full');
+
+            $thumbnailPath = 'profile/thumbnail/' . $imageId . '.img';
+            $fullPath = 'profile/' . $imageId . '.img';
+
+            Storage::put($thumbnailPath, file_get_contents($thumbnail));
+            Storage::put($fullPath, file_get_contents($full));
+
+            $response->status = 200;
+            $response->message = 'Operacion correcta';
+            $response->data = [
+                'uuid' => $userJpa->uuid
+            ];
+        } catch (\Throwable $th) {
+            $response->status = 400;
+            $response->message = $th->getMessage();
+        } finally {
+            return response(
+                $response->toArray(),
+                $response->status
+            );
+        }
+    }
+
+    public function save(Request $request): HttpResponse|RoutingResponseFactory
+    {
+        $response = new Response();
+        try {
+
+            $body = $request->all();
+            \Illuminate\Support\Facades\Log::info('Profile Update Request:', $body);
+
+            $jpa = User::find(Auth::user()->id);
+            $result = $jpa->update($body);
+            
+            if (!$result) {
+                throw new Exception('No se pudo actualizar el registro en la base de datos');
+            }
+
+            $response->status = 200;
+            $response->message = 'Operacion correcta';
+            $response->data = $jpa;
+        } catch (\Throwable $th) {
+            $response->status = 400;
+            $response->message = $th->getMessage();
+        } finally {
+            return response(
+                $response->toArray(),
+                $response->status
+            );
+        }
+    }
+}

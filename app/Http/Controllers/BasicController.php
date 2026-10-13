@@ -1,0 +1,1201 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Http\Classes\dxResponse;
+use App\Models\Aboutus;
+use App\Models\dxDataGrid;
+use App\Models\General;
+use App\Models\Slider;
+use App\Models\Social;
+use App\Models\User;
+use App\Models\ExchangeRate;
+use App\Helpers\CulqiConfig;
+use App\Models\RoleHasMenu;
+use App\Models\SystemColor;
+use Exception;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\Request;
+use Illuminate\Http\Response as HttpResponse;
+use Illuminate\Routing\ResponseFactory;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
+use Inertia\Inertia;
+use SoDe\Extend\Crypto;
+use SoDe\Extend\Response;
+use SoDe\Extend\Text;
+
+use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Cache;
+
+
+class BasicController extends Controller
+{
+  public $model = Model::class;
+  public $softDeletion = true;
+  public $reactView = 'Home';
+  public $reactRootView = 'admin';
+  public $imageFields = [];
+  public $prefix4filter = null;
+  public $throwMediaError = false;
+  public $reactData = null;
+  public $with4get = [];
+  public $manageFillable = null;
+  public $booleanLimits = [];
+  public $manageBooleanLimits = [];
+  public $defaultOrderBy = null; // Campo por defecto para ordenamiento (ej: 'order_index')
+
+  public function get(Request $request, string $id)
+  {
+    $response = Response::simpleTryCatch(function () use ($id) {
+      $jpa  = $this->model::with($this->with4get)->find($id);
+      if (!$jpa) throw new Exception('El pedido que buscas no existe');
+      return $jpa;
+    });
+    return \response($response->toArray(), $response->status);
+  }
+
+  public function all(Request $request)
+  {
+    $response = Response::simpleTryCatch(function () {
+      $query = $this->model::query();
+      $table = (new $this->model)->getTable();
+      $columns = \Illuminate\Support\Facades\Cache::remember('schema_columns_' . $table, 86400, function() use ($table) {
+          return \Illuminate\Support\Facades\Schema::getColumnListing($table);
+      });
+      if (in_array('status', $columns)) {
+        $query->where('status', true);
+      }
+      if (in_array('visible', $columns)) {
+        $query->where('visible', true);
+      }
+      return $query->get();
+    });
+    return response($response->toArray(), $response->status);
+  }
+
+  public function media(Request $request, string $uuid)
+  {
+    try {
+      $snake_case = Text::camelToSnakeCase(str_replace('App\\Models\\', '', $this->model));
+      if ($snake_case === 'item_image') {
+        $snake_case = 'item';
+      }
+
+      if (Text::has($uuid, '.')) {
+        $route = "images/{$snake_case}/{$uuid}";
+      } else {
+        $route = "images/{$snake_case}/{$uuid}.img";
+      }
+      $content = Storage::get($route);
+      if (!$content) throw new Exception('Imagen no encontrado');
+
+      // Detección dinámica del Content-Type
+      $mimeType = null;
+      try {
+        $mimeType = Storage::mimeType($route);
+      } catch (\Throwable $th) {}
+
+      if (!$mimeType || $mimeType === 'application/octet-stream') {
+        $info = @getimagesizefromstring($content);
+        if ($info && !empty($info['mime'])) {
+          $mimeType = $info['mime'];
+        } else {
+          $ext = strtolower(pathinfo($uuid, PATHINFO_EXTENSION));
+          $mimes = [
+            'webp' => 'image/webp',
+            'png' => 'image/png',
+            'jpg' => 'image/jpeg',
+            'jpeg' => 'image/jpeg',
+            'jfif' => 'image/jpeg',
+            'pjpeg' => 'image/jpeg',
+            'pjp' => 'image/jpeg',
+            'avif' => 'image/avif',
+            'svg' => 'image/svg+xml',
+            'svgz' => 'image/svg+xml',
+            'gif' => 'image/gif',
+            'ico' => 'image/x-icon',
+            'bmp' => 'image/bmp',
+            'tiff' => 'image/tiff',
+            'tif' => 'image/tiff',
+            'heic' => 'image/heic',
+            'heif' => 'image/heif',
+            'apng' => 'image/apng',
+            // Documentos y otros medios
+            'pdf' => 'application/pdf',
+            'doc' => 'application/msword',
+            'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'xls' => 'application/vnd.ms-excel',
+            'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'txt' => 'text/plain',
+            'zip' => 'application/zip',
+          ];
+          $mimeType = $mimes[$ext] ?? 'application/octet-stream';
+        }
+      }
+
+      return response($content, 200, [
+        'Content-Type' => $mimeType
+      ]);
+    } catch (\Throwable $th) {
+      $content = Storage::get('utils/cover-404.svg');
+      $status = 200;
+      if ($this->throwMediaError) return null;
+      return response($content, $status, [
+        'Content-Type' => 'image/svg+xml'
+      ]);
+    }
+  }
+
+  public function setPaginationInstance(Request $request, string $model)
+  {
+    return $model::select();
+  }
+
+  public function setPaginationSummary(Request $request, Builder $builder, Builder $originalInstance)
+  {
+    return [];
+  }
+
+  public function setReactViewProperties(Request $request)
+  {
+    return [];
+  }
+
+  protected function resolveBooleanLimits(): array
+  {
+    $payload = [];
+
+    $this->addBooleanLimitPayload($payload, $this->model, $this->booleanLimits);
+
+    if (
+      is_array($this->manageBooleanLimits)
+      && !empty($this->manageBooleanLimits)
+    ) {
+      foreach ($this->manageBooleanLimits as $key => $config) {
+        $modelClass = null;
+        $modelConfig = [];
+
+        if (is_int($key)) {
+          $modelClass = $config;
+        } else {
+          $modelClass = $key;
+          $modelConfig = is_array($config) ? $config : [];
+        }
+
+        if (!\is_string($modelClass) || !class_exists($modelClass)) {
+          continue;
+        }
+
+        $this->addBooleanLimitPayload($payload, $modelClass, $modelConfig);
+      }
+    }
+
+    return $payload;
+  }
+
+  protected function addBooleanLimitPayload(array &$payload, ?string $modelClass, array $config): void
+  {
+    if (!$modelClass || !class_exists($modelClass)) {
+      return;
+    }
+
+    try {
+      $reflection = new \ReflectionClass($modelClass);
+    } catch (\ReflectionException $exception) {
+      return;
+    }
+
+    if (!$reflection->isInstantiable()) {
+      return;
+    }
+
+    $modelInstance = new $modelClass;
+    if (!$modelInstance instanceof Model) {
+      return;
+    }
+
+    $table = $modelInstance->getTable();
+    $fieldsConfig = $this->extractBooleanLimitConfig($config, $table);
+
+    if (empty($fieldsConfig)) {
+      return;
+    }
+
+    foreach ($fieldsConfig as $field => $definition) {
+      $normalized = $this->normalizeBooleanLimitConfig($field, $definition, $table);
+      if (!$normalized) {
+        continue;
+      }
+
+      $active = $this->countBooleanLimitActive($field, $normalized, $modelClass);
+      $normalized['active'] = $active;
+      $normalized['remaining'] = max(0, $normalized['max'] - $active);
+      unset($normalized['filters'], $normalized['scopes']);
+
+      $payload[$table][$field] = $normalized;
+    }
+  }
+
+  protected function extractBooleanLimitConfig(?array $config, string $table): array
+  {
+    if (!is_array($config) || empty($config)) {
+      return [];
+    }
+
+    if (isset($config[$table]) && is_array($config[$table])) {
+      return $config[$table];
+    }
+
+    return $config;
+  }
+
+  protected function normalizeBooleanLimitConfig(string $field, mixed $config, ?string $table = null): ?array
+  {
+    if (is_null($config)) {
+      return null;
+    }
+
+    if (!is_array($config)) {
+      $config = ['max' => $config];
+    }
+
+    $generalKey = $config['general']
+      ?? $config['general_key']
+      ?? $config['correlative']
+      ?? null;
+
+    if (!$generalKey && $table) {
+      $generalKey = sprintf('boolean_limit.%s.%s', $table, $field);
+    }
+
+    $generalOverride = $this->getBooleanLimitGeneralConfig($generalKey);
+    if ($generalOverride) {
+      $config = array_merge($config, $generalOverride);
+    }
+
+    $max = $config['max'] ?? $config['limit'] ?? null;
+    if ($max === null) {
+      return null;
+    }
+
+    $max = (int) $max;
+    if ($max <= 0) {
+      return null;
+    }
+
+    $label = $config['label'] ?? Str::lower(str_replace('_', ' ', $field));
+
+    $messageTemplate = $config['message'] ?? null;
+    if ($messageTemplate) {
+      $message = str_replace(':max', (string) $max, $messageTemplate);
+    } else {
+      $message = "Solo se permiten {$max} {$label}.";
+    }
+
+    $this->ensureBooleanLimitGeneralRecord($generalKey, $max, $label, $config);
+
+    $filters = [];
+    if (!empty($config['filters']) && is_array($config['filters'])) {
+      $filters = $config['filters'];
+    }
+
+    $scopes = [];
+    if (!empty($config['scope'])) {
+      $scopes = is_array($config['scope']) ? $config['scope'] : [$config['scope']];
+    }
+    if (!empty($config['scopes']) && is_array($config['scopes'])) {
+      $scopes = array_merge($scopes, $config['scopes']);
+    }
+    $scopes = array_values(array_filter(array_unique($scopes)));
+
+    return [
+      'max' => $max,
+      'label' => $label,
+      'message' => $message,
+      'filters' => $filters,
+      'scopes' => $scopes,
+      'general_key' => $generalKey,
+    ];
+  }
+
+  protected function getBooleanLimitGeneralConfig(?string $generalKey): ?array
+  {
+    if (!$generalKey) {
+      return null;
+    }
+
+    $raw = General::where('correlative', $generalKey)->value('description');
+    if ($raw === null) {
+      return null;
+    }
+
+    $raw = trim((string) $raw);
+    if ($raw === '') {
+      return null;
+    }
+
+    $decoded = json_decode($raw, true);
+    if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+      $normalized = [];
+      if (isset($decoded['max']) || isset($decoded['limit'])) {
+        $normalized['max'] = (int) ($decoded['max'] ?? $decoded['limit']);
+      }
+      if (isset($decoded['message'])) {
+        $normalized['message'] = (string) $decoded['message'];
+      }
+      if (isset($decoded['label'])) {
+        $normalized['label'] = (string) $decoded['label'];
+      }
+      if (isset($decoded['filters']) && is_array($decoded['filters'])) {
+        $normalized['filters'] = $decoded['filters'];
+      }
+      if (isset($decoded['scopes'])) {
+        $normalized['scopes'] = is_array($decoded['scopes']) ? $decoded['scopes'] : [$decoded['scopes']];
+      }
+
+      return $normalized;
+    }
+
+    if (is_numeric($raw)) {
+      return ['max' => (int) $raw];
+    }
+
+    return null;
+  }
+
+  protected function ensureBooleanLimitGeneralRecord(?string $generalKey, int $max, string $label, array $config): void
+  {
+    if (!$generalKey) {
+      return;
+    }
+
+    if (isset($config['auto_register']) && $config['auto_register'] === false) {
+      return;
+    }
+
+    $exists = General::where('correlative', $generalKey)->exists();
+    if ($exists) {
+      return;
+    }
+
+    $name = isset($config['name'])
+      ? (string) $config['name']
+      : sprintf('Límite %s', Str::title($label));
+
+    $messageTemplate = $config['message'] ?? 'Solo se permiten :max ' . $label . '.';
+    $resolvedMessage = str_replace(':max', (string) $max, $messageTemplate);
+
+    $payload = ['max' => $max];
+    if (!empty($label)) {
+      $payload['label'] = $label;
+    }
+    if ($resolvedMessage) {
+      $payload['message'] = $resolvedMessage;
+    }
+
+    $dataType = $config['data_type'] ?? 'json';
+
+    try {
+      General::create([
+        'name' => $name,
+        'data_type' => $dataType,
+        'correlative' => $generalKey,
+        'description' => $dataType === 'json' ? json_encode($payload) : (string) $max,
+        'status' => $config['status'] ?? 1,
+      ]);
+    } catch (\Throwable $th) {
+      // Evitar fallos por condiciones de carrera
+    }
+  }
+
+  protected function countBooleanLimitActive(string $field, array $config, ?string $modelClass = null): int
+  {
+    $modelClass ??= $this->model;
+    if (!$modelClass || !class_exists($modelClass)) {
+      return 0;
+    }
+
+    /** @var Model $modelInstance */
+    $modelInstance = new $modelClass;
+    $query = $modelInstance->newQuery()->where($field, true);
+    $query = $this->applyBooleanLimitConditions($query, $config);
+
+    return (int) $query->count();
+  }
+
+  protected function applyBooleanLimitConditions(Builder $query, array $config): Builder
+  {
+    if (!empty($config['filters'])) {
+      foreach ($config['filters'] as $column => $value) {
+        if (is_array($value)) {
+          $query->whereIn($column, $value);
+        } else {
+          $query->where($column, $value);
+        }
+      }
+    }
+
+    if (!empty($config['scopes'])) {
+      foreach ($config['scopes'] as $scope) {
+        if (!is_string($scope) || $scope === '') {
+          continue;
+        }
+
+        $method = Str::camel($scope);
+        $scopeMethod = 'scope' . Str::studly($method);
+        $model = $query->getModel();
+
+        if (method_exists($model, $scopeMethod)) {
+          $query->{$method}();
+        }
+      }
+    }
+
+    return $query;
+  }
+
+  protected function getBooleanLimitConfigForField(string $field): ?array
+  {
+    $modelClass = $this->model;
+    if (!$modelClass || !class_exists($modelClass)) {
+      return null;
+    }
+
+    $modelInstance = new $modelClass;
+    $table = $modelInstance->getTable();
+    $config = $this->extractBooleanLimitConfig($this->booleanLimits, $table);
+
+    if (!isset($config[$field])) {
+      return null;
+    }
+
+    return $this->normalizeBooleanLimitConfig($field, $config[$field], $table);
+  }
+
+  public function reactView(Request $request)
+  {
+
+    $session = null;
+    if (Auth::check()) {
+      $session = User::find(Auth::id());
+      $session->getAllPermissions();
+    }
+
+    // Cargar TODAS las configuraciones globales en UNA sola query cacheada
+    $globalConfig = Cache::remember('global_config_generals', 300, function () {
+      return General::whereIn('correlative', [
+        'gmaps_api_key',
+        'checkout_culqi_public_key',
+        'checkout_culqi',
+        'checkout_culqi_name',
+        'checkout_culqi_rsa_id',
+        'checkout_culqi_rsa_public_key',
+        'checkout_culqi_supports_usd',
+        'exchange_rate_usd_pen',
+        'tiny_api_key',
+        'checkout_culqi_enable_card',
+        'checkout_culqi_enable_yape',
+        'checkout_culqi_enable_banking',
+        'checkout_culqi_enable_agent',
+        'checkout_culqi_enable_wallet',
+      ])->get()->keyBy('correlative');
+    });
+
+    $appColorPrimary = Cache::remember('global_color_primary', 300, function () {
+      return SystemColor::where('name', 'primary')->first()?->description ?: env('APP_COLOR_PRIMARY', "#000000");
+    });
+
+    $exchangeRate = $globalConfig->get('exchange_rate_usd_pen')?->description
+      ?? Cache::remember('global_exchange_rate_usd', 300, function () {
+        return ExchangeRate::where('currency', 'USD')->orderBy('date', 'desc')->first()?->rate ?? 3.75;
+      });
+
+    $fillable = [];
+    try {
+      $tableName =  (new $this->model)->getTable();
+      $fillable = [
+        $tableName => method_exists($this->model, 'columns') ? $this->model::columns() : null
+      ];
+    } catch (\Throwable $th) {
+    }
+    if (is_array($this->manageFillable)) {
+      foreach ($this->manageFillable as $model) {
+        $tableName = (new $model)->getTable();
+        $fillable[$tableName] = method_exists($model, 'columns') ? $model::columns() : null;
+      }
+    }
+
+    $menus = [];
+    if ($session) {
+      $roleIds = $session->roles()->pluck('id')->toArray();
+      $menus = RoleHasMenu::whereIn('role_id', $roleIds)->get();
+    }
+
+    $culqiEnabled = filter_var($globalConfig->get('checkout_culqi')?->description ?? 'false', FILTER_VALIDATE_BOOLEAN);
+
+    $properties = [
+      'session' => $session,
+      'global' => [
+        'PUBLIC_RSA_KEY' => Controller::$PUBLIC_RSA_KEY,
+        'APP_NAME' => env('APP_NAME'),
+        'APP_URL' => env('APP_URL'),
+        'APP_DOMAIN' => env('APP_DOMAIN'),
+        'APP_ENV' => env('APP_ENV'),
+        'APP_CORRELATIVE' => env('APP_CORRELATIVE'),
+        'APP_PROTOCOL' => env('APP_PROTOCOL', 'https'),
+        'GMAPS_API_KEY' => $globalConfig->get('gmaps_api_key')?->description ?: env('GMAPS_API_KEY', ""),
+        'APP_COLOR_PRIMARY' => $appColorPrimary,
+        'CULQI_PUBLIC_KEY' => $globalConfig->get('checkout_culqi_public_key')?->description ?: env('CULQI_PUBLIC_KEY'),
+        'CULQI_API' => CulqiConfig::getApiUrl(),
+        'CULQI_ENABLED' => $culqiEnabled,
+        'CULQI_NAME' => $globalConfig->get('checkout_culqi_name')?->description ?: 'Culqi',
+        'CULQI_RSA_ID' => $globalConfig->get('checkout_culqi_rsa_id')?->description ?: env('CULQI_RSA_ID'),
+        'CULQI_RSA_PUBLIC_KEY' => $globalConfig->get('checkout_culqi_rsa_public_key')?->description ?: env('CULQI_RSA_PUBLIC_KEY'),
+        'CULQI_SUPPORTS_USD' => ($globalConfig->get('checkout_culqi_supports_usd')?->description ?? '') === 'true',
+        'EXCHANGE_RATE' => $exchangeRate,
+        'API_KEY_TINYMCE' => $globalConfig->get('tiny_api_key')?->description ?: env('API_KEY_TINYMCE', "xiambljzyxjms4y2148wtxxl05f7bcpyt5o949l0c78tfe7c"),
+        'checkout_culqi_enable_card' => $globalConfig->get('checkout_culqi_enable_card')?->description ?? 'true',
+        'checkout_culqi_enable_yape' => $globalConfig->get('checkout_culqi_enable_yape')?->description ?? 'true',
+        'checkout_culqi_enable_banking' => $globalConfig->get('checkout_culqi_enable_banking')?->description ?? 'true',
+        'checkout_culqi_enable_agent' => $globalConfig->get('checkout_culqi_enable_agent')?->description ?? 'true',
+        'checkout_culqi_enable_wallet' => $globalConfig->get('checkout_culqi_enable_wallet')?->description ?? 'true',
+      ],
+      'can_access' => $menus,
+      'fillable' => $fillable,
+      'boolean_limits' => $this->resolveBooleanLimits()
+    ];
+
+    // FIX CRÍTICO: Solo llamar setReactViewProperties UNA VEZ (antes se llamaba DOS VECES)
+    $reactViewProperties = $this->setReactViewProperties($request);
+    if (\is_array($reactViewProperties)) {
+      foreach ($reactViewProperties as $key => $value) {
+        $properties[$key] = $value;
+      }
+    } else {
+      return $reactViewProperties;
+    }
+    
+    return Inertia::render($this->reactView, $properties)
+      ->rootView($this->reactRootView)
+      ->withViewData('data', $this->reactData ?? []);
+  }
+
+  public function paginate(Request $request): HttpResponse|ResponseFactory
+  {
+    $response = new dxResponse();
+    try {
+
+      //$instance = $this->setPaginationInstance($this->model);
+      // Obtener los with desde el request (si no se envían, será un array vacío)
+      $withRelations = $request->has('with') ? explode(',', $request->with) : [];
+
+      // Aplicar with dinámicamente
+      $instance = $this->setPaginationInstance($request, $this->model)->with($withRelations);
+
+      // Aplicar filtros del método beforeIndex si existe
+      if (method_exists($this, 'beforeIndex')) {
+        $beforeIndexConfig = $this->beforeIndex($request);
+        if (isset($beforeIndexConfig['filter']) && is_callable($beforeIndexConfig['filter'])) {
+          $beforeIndexConfig['filter']($instance);
+        }
+      }
+
+      $originalInstance = clone $instance;
+
+      $originalInstance = clone $instance;
+
+      if ($request->group != null) {
+        [$grouping] = $request->group;
+        $selector = $grouping['selector'];
+        if ($this->prefix4filter && !str_contains($selector, '.')) {
+          $selector = $this->prefix4filter . '.' . $selector;
+        }
+        $instance = $instance->select([
+          DB::raw("{$selector} AS 'key'")
+        ])
+          ->groupBy($selector);
+      }
+
+      if (Auth::check() && !($this->skipStatusFilter ?? false)) {
+        $table = $this->prefix4filter ? $this->prefix4filter : (new $this->model)->getTable();
+        $columns = \Illuminate\Support\Facades\Cache::remember('schema_columns_' . $table, 86400, function() use ($table) {
+            return \Illuminate\Support\Facades\Schema::getColumnListing($table);
+        });
+        if (in_array('status', $columns)) {
+          $instance->where($this->prefix4filter ? $this->prefix4filter . '.status' : 'status', true);
+          $instance->whereNotNull($this->prefix4filter ? $this->prefix4filter . '.status' : 'status');
+        }
+      }
+
+      if ($request->filter) {
+        $instance->where(function ($query) use ($request) {
+          dxDataGrid::filter($query, $request->filter ?? [], false, $this->prefix4filter);
+        });
+      }
+
+
+      if ($request->group == null) {
+        if ($request->sort != null) {
+          foreach ($request->sort as $sorting) {
+            $selector = $sorting['selector'];
+            if ($this->prefix4filter && !str_contains($selector, '.')) {
+              $selector = $this->prefix4filter . '.' . $selector;
+            }
+            $instance->orderBy(
+              $selector,
+              $sorting['desc'] ? 'DESC' : 'ASC'
+            );
+          }
+        } else { //MEJORAR IMPLMENTAR ASC O DESC DESDE EL REST, PARA MEJORARLO LA INTERACTIVIDAD CON OTRAS TABLAS
+          // Usar defaultOrderBy si está definido, sino usar id como antes
+          if ($this->defaultOrderBy) {
+            $orderField = $this->prefix4filter ? $this->prefix4filter . '.' . $this->defaultOrderBy : $this->defaultOrderBy;
+            $instance->orderBy($orderField, 'ASC');
+          } else {
+            $instance->orderBy($this->prefix4filter ? $this->prefix4filter . '.id' : 'id', 'ASC');
+          }
+        }
+      }
+
+      $totalCount = 0;
+      if ($request->requireTotalCount) {
+        $instance4count = clone $instance;
+        $instance4count->getQuery()->groups = null;
+        if ($request->group != null) {
+          // When grouping, count distinct groups
+          $totalCount = $instance4count->distinct()->count(DB::raw($selector));
+        } else {
+          // When not grouping, use the original count logic
+          if ($this->prefix4filter) {
+            $totalCount = $instance4count->distinct()->count($this->prefix4filter . '.id');
+          } else {
+            $totalCount = $instance4count->distinct()->count('id');
+          }
+        }
+      }
+
+      $jpas = $request->isLoadingAll
+        ? $instance->get()
+        : $instance
+        ->skip($request->skip ?? 0)
+        ->take($request->take ?? 10)
+        ->get();
+
+      $response->status = 200;
+      $response->message = 'Operación correcta';
+      $response->data = $jpas;
+      $response->summary = $this->setPaginationSummary($request, $instance, $originalInstance);
+      $response->totalCount = $totalCount;
+    } catch (\Throwable $th) {
+      // dump($th);
+      $response->message = $th->getMessage() . ' Ln.' . $th->getLine();
+    } finally {
+      return response(
+        $response->toArray(),
+        $response->status
+      );
+    }
+  }
+
+  public function beforeSave(Request $request)
+  {
+    $data = $request->all();
+    // Fallback: si el body no fue parseado (falta Content-Type: application/json)
+    // esto ocurre con la librería sode-extend-react que no envía el header automáticamente
+    if (empty($data) && !empty($request->getContent())) {
+      $decoded = json_decode($request->getContent(), true);
+      if (is_array($decoded) && !empty($decoded)) {
+        $data = $decoded;
+      }
+    }
+    return $data;
+  }
+
+  /**
+   * Guarda una imagen optimizándola a WebP de forma transparente si es compatible.
+   * Genera un nombre semántico (slug + hash aleatorio) para SEO.
+   * Retorna el nombre del archivo guardado (ej. diseno-web-profesional-a8f1b2c3.webp)
+   */
+  public static function saveImage($file, string $snake_case): string
+  {
+    $originalName = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME);
+    $slug = Str::slug($originalName);
+    if (empty($slug)) {
+      $slug = $snake_case;
+    }
+    $uuid = Crypto::randomUUID();
+    $filenameBase = "{$slug}-{$uuid}";
+    $ext = strtolower($file->getClientOriginalExtension());
+    
+    // Si es una imagen compatible, la optimizamos y convertimos a WebP
+    if (in_array($ext, ['jpg', 'jpeg', 'png', 'webp'])) {
+      $realPath = $file->getRealPath();
+      $imgInfo = @getimagesize($realPath);
+      if ($imgInfo) {
+        $mime = $imgInfo['mime'];
+        $sourceImage = null;
+        switch ($mime) {
+          case 'image/jpeg':
+          case 'image/jpg':
+            if (function_exists('imagecreatefromjpeg')) {
+              $sourceImage = @imagecreatefromjpeg($realPath);
+            }
+            break;
+          case 'image/png':
+            if (function_exists('imagecreatefrompng')) {
+              $sourceImage = @imagecreatefrompng($realPath);
+              if ($sourceImage) {
+                imagealphablending($sourceImage, false);
+                imagesavealpha($sourceImage, true);
+              }
+            }
+            break;
+          case 'image/webp':
+            if (function_exists('imagecreatefromwebp')) {
+              $sourceImage = @imagecreatefromwebp($realPath);
+            }
+            break;
+        }
+        
+        if ($sourceImage) {
+          if (function_exists('imagepalettetotruecolor') && !imageistruecolor($sourceImage)) {
+            imagepalettetotruecolor($sourceImage);
+          }
+        }
+        
+        if ($sourceImage && function_exists('imagewebp')) {
+          $tempPath = tempnam(sys_get_temp_dir(), 'webp');
+          if (@imagewebp($sourceImage, $tempPath, 90)) {
+            $path = "images/{$snake_case}/{$filenameBase}.webp";
+            Storage::put($path, file_get_contents($tempPath));
+            @imagedestroy($sourceImage);
+            @unlink($tempPath);
+            return "{$filenameBase}.webp";
+          }
+          @imagedestroy($sourceImage);
+          @unlink($tempPath);
+        }
+      }
+    }
+
+    // Fallback: guardar el archivo original
+    $path = "images/{$snake_case}/{$filenameBase}.{$ext}";
+    Storage::put($path, file_get_contents($file));
+    return "{$filenameBase}.{$ext}";
+  }
+
+  public function clearCache()
+  {
+    Cache::flush();
+  }
+
+  public function save(Request $request): HttpResponse|ResponseFactory
+  {
+    $response = new Response();
+    try {
+
+      $body = $this->beforeSave($request);
+
+      Log::info('BasicController - Después de beforeSave:', [
+        'controller' => get_class($this),
+        'has_banners' => isset($body['banners']),
+        'banners_in_body' => $body['banners'] ?? 'not_set'
+      ]);
+
+
+      $snake_case = Text::camelToSnakeCase(str_replace('App\\Models\\', '', $this->model));
+      if ($snake_case === "item_image") {
+        $snake_case = 'item';
+      }
+
+      foreach ($this->imageFields as $field) {
+        // Check if image should be deleted (when hidden field contains 'DELETE')
+        $deleteFlag = $request->input($field . '_delete');
+
+        if ($deleteFlag === 'DELETE') {
+          // Find existing record to delete old image file
+          if (isset($body['id'])) {
+            $existingRecord = $this->model::find($body['id']);
+            if ($existingRecord && $existingRecord->{$field}) {
+              $oldFilename = $existingRecord->{$field};
+              if (!Text::has($oldFilename, '.')) {
+                $oldFilename = "{$oldFilename}.enc";
+              }
+              $oldPath = "images/{$snake_case}/{$oldFilename}";
+              Storage::delete($oldPath);
+            }
+          }
+          // Set field to null in database
+          $body[$field] = null;
+          continue;
+        }
+
+        // Handle new image upload
+        if (!$request->hasFile($field)) continue;
+
+        // Delete old image if exists and we're updating
+        if (isset($body['id'])) {
+          $existingRecord = $this->model::find($body['id']);
+          if ($existingRecord && $existingRecord->{$field}) {
+            $oldFilename = $existingRecord->{$field};
+            if (!Text::has($oldFilename, '.')) {
+              $oldFilename = "{$oldFilename}.enc";
+            }
+            $oldPath = "images/{$snake_case}/{$oldFilename}";
+            Storage::delete($oldPath);
+          }
+        }
+
+        $full = $request->file($field);
+        $body[$field] = self::saveImage($full, $snake_case);
+      }
+
+      $jpa = $this->model::find(isset($body['id']) ? $body['id'] : null);
+
+
+      if (!$jpa) {
+        $body['slug'] = Crypto::randomUUID();
+
+        $table = (new $this->model)->getTable();
+        $columns = \Illuminate\Support\Facades\Cache::remember('schema_columns_' . $table, 86400, function() use ($table) {
+            return \Illuminate\Support\Facades\Schema::getColumnListing($table);
+        });
+        if (in_array('order_index', $columns) && !isset($body['order_index'])) {
+          $maxOrderIndex = $this->model::max('order_index');
+          $body['order_index'] = ($maxOrderIndex !== null) ? $maxOrderIndex + 1 : 0;
+        }
+
+        $jpa = $this->model::create($body);
+        $isNew = true;
+      } else {
+        Log::info('BasicController - Antes de update:', [
+          'controller' => get_class($this),
+          'id' => $jpa->id,
+          'has_banners_in_body' => isset($body['banners']),
+          'banners_value' => $body['banners'] ?? 'not_set'
+        ]);
+
+        $jpa->update($body);
+
+        Log::info('BasicController - Después de update:', [
+          'banners_in_model' => $jpa->banners
+        ]);
+
+        $isNew = false;
+      }
+
+      $table = (new $this->model)->getTable();
+      $columns = \Illuminate\Support\Facades\Cache::remember('schema_columns_' . $table, 86400, function() use ($table) {
+          return \Illuminate\Support\Facades\Schema::getColumnListing($table);
+      });
+      if (in_array('slug', $columns)) {
+        // Solo generar slug automático si no se proporcionó uno manualmente
+        if (empty($jpa->slug) || (!$request->has('slug') || empty($request->slug))) {
+          // Generar el slug base usando el nombre del producto
+          $slugBase = $jpa->name;
+          // Si existe el campo 'color' y tiene valor, añadirlo al slug
+          if (in_array('color', $columns) && !empty($jpa->color)) {
+            $slugBase .= '-' . $jpa->color;
+          }
+
+          if (in_array('size', $columns) && !empty($jpa->size)) {
+            $slugBase .= '-' . $jpa->size;
+          }
+
+          $slug = Str::slug($slugBase);
+          // Verificar si el slug ya existe para otro registro
+          $slugExists = $this->model::where('slug', $slug)
+            ->where('id', '<>', $jpa->id)
+            ->exists();
+          // Si existe, añadir un identificador único corto
+          if ($slugExists) {
+            $slug = $slug . '-' . Crypto::short();
+          }
+          // Actualizar el slug
+          $jpa->update(['slug' => $slug]);
+        }
+      }
+
+      $data = $this->afterSave($request, $jpa, $isNew);
+      if ($data) {
+        $response->data = $data;
+      }
+
+      $response->status = 200;
+      $response->message = 'Operacion correcta';
+      $this->clearCache();
+    } catch (\Throwable $th) {
+      $response->status = 400;
+      $response->message = $th->getMessage();
+    } finally {
+      return response(
+        $response->toArray(),
+        $response->status
+      );
+    }
+  }
+
+  public function afterSave(Request $request, object $jpa, ?bool $isNew)
+  {
+    return null;
+  }
+
+  public function status(Request $request)
+  {
+    $response = new Response();
+    try {
+      $body = $request->all();
+      if (empty($body)) {
+        $body = json_decode($request->getContent(), true) ?? [];
+      }
+      $id = $body['id'] ?? $request->id;
+      $statusVal = $body['status'] ?? $request->status;
+
+      $this->model::where('id', $id)
+        ->update([
+          'status' => $statusVal ? 0 : 1
+        ]);
+
+      $response->status = 200;
+      $response->message = 'Operacion correcta';
+      $this->clearCache();
+    } catch (\Throwable $th) {
+      $response->status = 400;
+      $response->message = $th->getMessage();
+    } finally {
+      return response(
+        $response->toArray(),
+        $response->status
+      );
+    }
+  }
+
+  public function boolean(Request $request)
+  {
+    $response = new Response();
+    try {
+      $modelClass = $this->model;
+      if (!$modelClass || !class_exists($modelClass)) {
+        throw new Exception('Modelo no configurado para la operación.');
+      }
+
+      // Fallback: si el body no fue parseado (falta Content-Type: application/json)
+      $body = $request->all();
+      if (empty($body)) {
+        $body = json_decode($request->getContent(), true) ?? [];
+      }
+
+      $id    = $body['id']    ?? $request->id;
+      $field = (string) ($body['field'] ?? $request->field ?? '');
+      $rawValue = $body['value'] ?? $request->value;
+
+      if ($field === '') {
+        throw new Exception('Campo no proporcionado.');
+      }
+
+      $value = filter_var($rawValue, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+      if ($value === null) {
+        throw new Exception('Valor booleano inválido.');
+      }
+
+      /** @var Model $record */
+      $record = $modelClass::findOrFail($id);
+      $previousValue = (bool) $record->{$field};
+
+      $limitConfig = $this->getBooleanLimitConfigForField($field);
+      $tableName = (new $modelClass)->getTable();
+
+      if ($value && !$previousValue && $limitConfig) {
+        $active = $this->countBooleanLimitActive($field, $limitConfig);
+        if ($active >= $limitConfig['max']) {
+          $response->status = 422;
+          $response->message = $limitConfig['message'];
+
+          $limitState = $limitConfig;
+          $limitState['active'] = $active;
+          $limitState['remaining'] = max(0, $limitConfig['max'] - $active);
+          unset($limitState['filters'], $limitState['scopes']);
+
+          $response->data = [
+            'table' => $tableName,
+            'field' => $field,
+            'limit' => $limitState,
+          ];
+
+          return response(
+            $response->toArray(),
+            $response->status
+          );
+        }
+      }
+
+      if ($previousValue !== $value) {
+        $record->{$field} = $value;
+        $record->save();
+      }
+
+      $response->status = 200;
+      $response->message = 'Operacion correcta';
+      $this->clearCache();
+
+      if ($limitConfig) {
+        $active = $this->countBooleanLimitActive($field, $limitConfig);
+
+        $limitState = $limitConfig;
+        $limitState['active'] = $active;
+        $limitState['remaining'] = max(0, $limitConfig['max'] - $active);
+        unset($limitState['filters'], $limitState['scopes']);
+
+        $response->data = [
+          'table' => $tableName,
+          'field' => $field,
+          'limit' => $limitState,
+          'previous' => $previousValue,
+          'value' => (bool) $value,
+        ];
+      }
+    } catch (\Throwable $th) {
+      if (!$response->status || $response->status === 500) {
+        $response->status = 400;
+      }
+      $response->message = $th->getMessage();
+    } finally {
+      return response(
+        $response->toArray(),
+        $response->status
+      );
+    }
+  }
+
+  public function beforeDelete(Request $request)
+  {
+    return [];
+  }
+
+  public function afterDelete(Model $data)
+  {
+    return [];
+  }
+
+  public function reorder(Request $request, $id)
+  {
+    try {
+      $targetModel = $this->model::findOrFail($id);
+      $newOrderIndex = $request->input('order_index');
+      $oldOrderIndex = $targetModel->order_index;
+
+      // Si el orden no cambió, no hacer nada
+      if ($oldOrderIndex == $newOrderIndex) {
+        return response()->json([
+          'success' => true,
+          'message' => 'Sin cambios en el orden'
+        ]);
+      }
+
+      // Obtener todos los registros ordenados por order_index
+      $allModels = $this->model::orderBy('order_index', 'asc')->get();
+
+      // Crear array con los order_index actuales (sin el elemento que se mueve)
+      $otherModels = $allModels->filter(function ($model) use ($id) {
+        return $model->id != $id;
+      })->values(); // Reindexar la colección
+
+      // Insertar el modelo objetivo en la nueva posición
+      $reorderedModels = collect();
+      $targetInserted = false;
+
+      // Si la nueva posición es 0 (al inicio)
+      if ($newOrderIndex == 0) {
+        $reorderedModels->push($targetModel);
+        $targetInserted = true;
+      }
+
+      foreach ($otherModels as $index => $model) {
+        // Si no hemos insertado el target y llegamos a la posición deseada
+        if (!$targetInserted && $index == $newOrderIndex) {
+          $reorderedModels->push($targetModel);
+          $targetInserted = true;
+        }
+        $reorderedModels->push($model);
+      }
+
+      // Si no se insertó (nueva posición al final)
+      if (!$targetInserted) {
+        $reorderedModels->push($targetModel);
+      }
+
+      // Actualizar order_index de todos los modelos secuencialmente
+      foreach ($reorderedModels as $index => $model) {
+        $model->order_index = $index;
+        $model->save();
+      }
+
+      $this->clearCache();
+
+      return response()->json([
+        'success' => true,
+        'message' => 'Registros reordenados correctamente'
+      ]);
+    } catch (\Exception $e) {
+      return response()->json([
+        'success' => false,
+        'message' => 'Error al reordenar registros: ' . $e->getMessage()
+      ], 500);
+    }
+  }
+
+  public function delete(Request $request, string $id)
+  {
+    $response = new Response();
+    try {
+      $body = $this->beforeDelete($request);
+
+      $dataBeforeDelete = $this->model::find($id);
+      if (!$dataBeforeDelete) throw new Exception('El registro que intenta eliminar no existe');
+
+      // Verificar si la tabla tiene el campo 'status' antes de hacer soft delete
+      $table = (new $this->model)->getTable();
+      $hasStatusColumn = Schema::hasColumn($table, 'status');
+
+      if ($this->softDeletion && $hasStatusColumn) {
+        $deleted = $this->model::where('id', $id)
+          ->update(\array_merge(['status' => false], $body));
+      } else {
+        $deleted = $this->model::where('id', $id)
+          ->delete();
+      }
+      if ($deleted) {
+        $snake_case = Text::camelToSnakeCase(str_replace('App\\Models\\', '', $this->model));
+        foreach ($this->imageFields as $field) {
+          $filename = $dataBeforeDelete->{$field} ?? '';
+          if (!Text::has($filename, '.')) {
+            $filename = "{$filename}.enc";
+          }
+          $path = "images/{$snake_case}/{$filename}";
+          Storage::delete($path);
+        }
+      }
+
+      $this->afterDelete($dataBeforeDelete);
+
+      if (!$deleted) throw new Exception('No se ha eliminado ningun registro');
+
+      $response->status = 200;
+      $response->message = 'Operacion correcta';
+      $this->clearCache();
+    } catch (\Throwable $th) {
+      $response->status = 400;
+      $response->message = $th->getMessage();
+    } finally {
+      return response(
+        $response->toArray(),
+        $response->status
+      );
+    }
+  }
+}

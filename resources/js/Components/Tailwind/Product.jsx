@@ -1,0 +1,388 @@
+import React from "react";
+import ItemsRest from "../../Actions/ItemsRest";
+
+const itemsRest = new ItemsRest();
+
+const ProductCarousel = React.lazy(() => import("./Products/ProductCarousel"));
+const ProductList = React.lazy(() => import("./Products/ProductList"));
+const ProductSlider = React.lazy(() => import("./Products/ProductSlider"));
+const ProductInfinite = React.lazy(() => import("./Products/ProductInfinite"));
+const ProductFimesac = React.lazy(() => import("./Products/ProductFimesac"));
+
+
+const ProductIbergruas = React.lazy(
+    () => import("./Products/ProductIbergruas"),
+);
+const ProductNavigation = React.lazy(
+    () => import("./Products/ProductNavigation"),
+);
+const ProductNavigationSwiper = React.lazy(
+    () => import("./Products/ProductNavigationSwiper"),
+);
+const ProductNavigationSwiperSimple = React.lazy(
+    () => import("./Products/ProductNavigationSwiperSimple"),
+);
+const ProductNavigationSwiperPaani = React.lazy(
+    () => import("./Products/ProductNavigationSwiperPaani"),
+);
+const ProductFeaturedSwiper = React.lazy(
+    () => import("./Products/ProductFeaturedSwiper"),
+);
+const ProductFeaturedVerticalSlider = React.lazy(
+    () => import("./Products/ProductFeaturedVerticalSlider"),
+);
+const ProductBananaLab = React.lazy(
+    () => import("./Products/ProductBananaLab"),
+);
+const ScrapingSimple = React.lazy(() => import("./Scraping/ScrapingSimple"));
+const ProductMakita = React.lazy(() => import("./Products/ProductMakita"));
+const ProductMultivet = React.lazy(() => import("./Products/ProductMultivet"));
+const ProductInfiniteSlider = React.lazy(
+    () => import("./Products/ProductInfiniteSlider"),
+);
+const ProductIbergruasSwiper = React.lazy(
+    () => import("./Products/ProductIbergruasSwiper"),
+);
+const ProductLaPetaca = React.lazy(() => import("./Products/ProductLaPetaca"));
+const ProductListPanelPro = React.lazy(
+    () => import("./Products/ProductListPanelPro"),
+);
+const ProductListCardPanelPro = React.lazy(
+    () => import("./Products/ProductListCardPanelPro"),
+);
+const ProductListHostinfinity = React.lazy(
+    () => import("./Products/ProductListHostinfinity"),
+);
+const ProductListHostinfinityFilter = React.lazy(
+    () => import("./Products/ProductListHostinfinityFilter"),
+);
+const ProductGridRainstar = React.lazy(
+    () => import("./Products/ProductGridRainstar"),
+);
+const ProductSwiperMiBalon = React.lazy(
+    () => import("./Products/ProductSwiperMiBalon"),
+);
+const ProductSwiperBanners = React.lazy(
+    () => import("./Products/ProductSwiperBanners"),
+);
+const ProductSwiperTwenty = React.lazy(
+    () => import("./Products/ProductSwiperTwenty"),
+);
+const ProductsNgs = React.lazy(
+    () => import("./Products/ProductsNgs"),
+);
+const ProductCardHybrid = React.lazy(
+    () => import("./Products/ProductCardHybrid"),
+);
+
+const Product = ({
+    which,
+    data,
+    items,
+    cart,
+    setCart,
+    pages,
+    filteredData,
+    favorites,
+    setFavorites,
+    contacts,
+    generals,
+}) => {
+    // Función para trackear clicks en productos
+    const handleClickTracking = async (item) => {
+        const request = {
+            id: item?.id,
+            page_url: window.location.href,
+            referrer: document.referrer || null,
+            user_agent: navigator.userAgent,
+            timestamp: new Date().toISOString(),
+        };
+        await itemsRest.updateClicks(request);
+    };
+
+    const getProduct = () => {
+        switch (which) {
+            case "ProductsNgs":
+            case "ProductNgs":
+                return (
+                    <ProductsNgs
+                        data={data}
+                        items={items}
+                        cart={cart}
+                        setCart={setCart}
+                    />
+                );
+            case "ProductGridRainstar":
+                return (
+                    <ProductGridRainstar
+                        data={data}
+                        items={items}
+                        cart={cart}
+                        setCart={setCart}
+                    />
+                );
+            case "Carousel":
+                return (
+                    <ProductCarousel
+                        data={data}
+                        items={items}
+                        cart={cart}
+                        setCart={setCart}
+                    />
+                );
+            case "List":
+                return (
+                    <ProductList
+                        data={data}
+                        items={items}
+                        cart={cart}
+                        setCart={setCart}
+                    />
+                );
+            case "ProductSlider":
+                return (
+                    <ProductSlider
+                        data={data}
+                        items={items}
+                        cart={cart}
+                        setCart={setCart}
+                    />
+                );
+            case "ProductInfinite":
+                return (
+                    <ProductInfinite
+                        data={data}
+                        items={items}
+                        cart={cart}
+                        setCart={setCart}
+                    />
+                );
+            case "ProductFimesac":
+                return (
+                    <ProductFimesac
+                        data={data}
+                        items={items}
+                        cart={cart}
+                        setCart={setCart}
+                    />
+                );
+            case "ProductSwiperMiBalon":
+                return (
+                    <ProductSwiperMiBalon
+                        data={data}
+                        items={items}
+                        cart={cart}
+                        setCart={setCart}
+                    />
+                );
+            case "ProductSwiperBanners":
+                return (
+                    <ProductSwiperBanners
+                        data={data}
+                        items={items}
+                    />
+                );
+            case "ProductSwiperTwenty":
+                return (
+                    <ProductSwiperTwenty
+                        data={data}
+                        items={items}
+                        cart={cart}
+                        setCart={setCart}
+                    />
+                );
+            case "ProductIbergruas":
+                return (
+                    <ProductIbergruas
+                        data={data}
+                        items={items}
+                        cart={cart}
+                        setCart={setCart}
+                    />
+                );
+            case "ProductNavigation":
+                return (
+                    <ProductNavigation
+                        data={data}
+                        items={items}
+                        cart={cart}
+                        setCart={setCart}
+                    />
+                );
+            case "ProductNavigationSwiper":
+                return (
+                    <ProductNavigationSwiper
+                        data={data}
+                        items={items}
+                        cart={cart}
+                        setCart={setCart}
+                    />
+                );
+            case "ProductNavigationSwiperSimple":
+                return (
+                    <ProductNavigationSwiperSimple
+                        data={data}
+                        items={items}
+                        cart={cart}
+                        setCart={setCart}
+                    />
+                );
+            case "ProductNavigationSwiperPaani":
+                return (
+                    <ProductNavigationSwiperPaani
+                        data={data}
+                        items={items}
+                        cart={cart}
+                        setCart={setCart}
+                    />
+                );
+            case "ProductFeaturedSwiper":
+                return (
+                    <ProductFeaturedSwiper
+                        data={data}
+                        items={items}
+                        cart={cart}
+                        setCart={setCart}
+                        contacts={contacts}
+                    />
+                );
+            case "ProductFeaturedVerticalSlider":
+                return (
+                    <ProductFeaturedVerticalSlider
+                        data={data}
+                        items={items}
+                        cart={cart}
+                        setCart={setCart}
+                    />
+                );
+            case "ProductBananaLab":
+                return (
+                    <ProductBananaLab
+                        data={data}
+                        items={items}
+                        cart={cart}
+                        setCart={setCart}
+                        favorites={favorites}
+                        setFavorites={setFavorites}
+                    />
+                );
+            case "Scraping":
+                return (
+                    <ScrapingSimple
+                        data={data}
+                        items={items}
+                        cart={cart}
+                        setCart={setCart}
+                        pages={pages}
+                        filteredData={filteredData}
+                    />
+                );
+            case "ProductMakita":
+                return (
+                    <ProductMakita
+                        data={data}
+                        items={items}
+                        cart={cart}
+                        setCart={setCart}
+                    />
+                );
+            case "ProductMultivet":
+                return (
+                    <ProductMultivet
+                        data={data}
+                        items={items}
+                        favorites={favorites}
+                        setFavorites={setFavorites}
+                        onClickTracking={handleClickTracking}
+                    />
+                );
+            case "ProductInfiniteSlider":
+                return (
+                    <ProductInfiniteSlider
+                        data={data}
+                        items={items}
+                        cart={cart}
+                        setCart={setCart}
+                    />
+                );
+            case "ProductIbergruasSwiper":
+                return (
+                    <ProductIbergruasSwiper
+                        data={data}
+                        items={items}
+                        cart={cart}
+                        setCart={setCart}
+                    />
+                );
+            case "ProductLaPetaca":
+                return (
+                    <ProductLaPetaca
+                        data={data}
+                        items={items}
+                        cart={cart}
+                        setCart={setCart}
+                    />
+                );
+            case "ProductListPanelPro":
+                return (
+                    <ProductListPanelPro
+                        data={data}
+                        items={items}
+                        cart={cart}
+                        setCart={setCart}
+                        generals={generals}
+                        onClickTracking={handleClickTracking}
+                    />
+                );
+            case "ProductListCardPanelPro":
+                return (
+                    <ProductListCardPanelPro
+                        data={data}
+                        items={items}
+                        cart={cart}
+                        setCart={setCart}
+                        generals={generals}
+                        onClickTracking={handleClickTracking}
+                    />
+                );
+            case "ProductListHostinfinity":
+                return (
+                    <ProductListHostinfinity
+                        data={data}
+                        items={items}
+                        cart={cart}
+                        setCart={setCart}
+                        onClickTracking={handleClickTracking}
+                    />
+                );
+            case "ProductListHostinfinityFilter":
+                return (
+                    <ProductListHostinfinityFilter
+                        data={data}
+                        items={items}
+                        cart={cart}
+                        setCart={setCart}
+                        onClickTracking={handleClickTracking}
+                    />
+                );
+            case "ProductCardHybrid":
+                return (
+                    <ProductCardHybrid
+                        data={data}
+                        items={items}
+                        cart={cart}
+                        setCart={setCart}
+                    />
+                );
+            default:
+                return (
+                    <div className="w-full px-[5%] replace-max-w-here p-4 mx-auto">
+                        - No Hay componente <b>{which}</b> -
+                    </div>
+                );
+        }
+    };
+    return getProduct();
+};
+
+export default Product;

@@ -1,0 +1,124 @@
+import React from "react";
+
+const ContactSimple = React.lazy(() => import("./Contact/ContactSimple"));
+const ContactGrid = React.lazy(() => import("./Contact/ContactGrid"));
+const ContactAko = React.lazy(() => import("./Contact/ContactAko"));
+const ContactKatya = React.lazy(() => import("./Contact/ContactKatya"));
+const ContactHuaillys = React.lazy(() => import("./Contact/ContactHuaillys"));
+const ThankContact = React.lazy(() => import("./Contact/ThankContact"));
+
+const ContactWebQuirurgica = React.lazy(
+    () => import("./Contact/ContactWebQuirurgica"),
+);
+const ContactRainstar = React.lazy(() => import("./Contact/ContactRainstar"));
+const ContactMiBalon = React.lazy(() => import("./Contact/ContactMiBalon"));
+const ContactTwenty = React.lazy(() => import("./Contact/ContactTwenty"));
+const ContactRhino = React.lazy(() => import("./Contact/ContactRhino"));
+const FinalCtaRhino = React.lazy(() => import("./Contact/FinalCtaRhino"));
+
+const Contact = ({
+    which,
+    data,
+    contacts,
+    setContact,
+    generals = [],
+    items = [],
+}) => {
+    const getContact = () => {
+        switch (which) {
+            case "FinalCtaRhino":
+                return <FinalCtaRhino data={data} generals={generals} />;
+            case "ContactSimple":
+                return (
+                    <ContactSimple
+                        data={data}
+                        contacts={generals}
+                        setContact={setContact}
+                    />
+                );
+            case "ContactGrid":
+                return (
+                    <ContactGrid
+                        data={data}
+                        generals={generals}
+                        setContact={setContact}
+                    />
+                );
+            case "ContactAko":
+                return (
+                    <ContactAko
+                        data={data}
+                        contacts={generals}
+                        setContact={setContact}
+                    />
+                );
+            case "ContactKatya":
+                return (
+                    <ContactKatya
+                        data={data}
+                        // contacts={generals}
+                        setContact={setContact}
+                        generals={generals}
+                    />
+                );
+            case "ContactHuaillys":
+                return (
+                    <ContactHuaillys
+                        data={data}
+                        //  contacts={contacts}
+                        setContact={setContact}
+                        generals={generals}
+                    />
+                );
+            case "ThankContact":
+                return <ThankContact data={data} />;
+
+            case "ContactWebQuirurgica":
+                return (
+                    <ContactWebQuirurgica
+                        data={data}
+                        generals={generals}
+                        items={items}
+                    />
+                );
+            case "ContactRainstar":
+                return (
+                    <ContactRainstar
+                        data={data}
+                        generals={generals}
+                    />
+                );
+            case "ContactMiBalon":
+            case "ContactMibalon":
+                return (
+                    <ContactMiBalon
+                        data={data}
+                        generals={generals}
+                    />
+                );
+            case "ContactTwenty":
+                return (
+                    <ContactTwenty
+                        data={data}
+                        generals={generals}
+                    />
+                );
+            case "ContactRhino":
+                return (
+                    <ContactRhino
+                        data={data}
+                        generals={generals}
+                    />
+                );
+            default:
+                return (
+                    <div className="w-full px-[5%] replace-max-w-here p-4 mx-auto">
+                        - No Hay componente <b>{which}</b> -
+                    </div>
+                );
+        }
+    };
+    return getContact();
+};
+
+export default Contact;

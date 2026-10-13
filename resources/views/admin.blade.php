@@ -1,0 +1,210 @@
+@php
+    $route = Route::currentRouteName();
+    // $component = Router::components[$route];
+    // $admintoInstance = isset($component['adminto-instance']) ? $component['adminto-instance'] : false;
+@endphp
+
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    @viteReactRefresh
+    <meta charset="utf-8" />
+    <meta name="generator" content="Rhino Builder · Rhino Technology S.A.C. · RUC 20615611639 · rhino.pe">
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+    <title>Panel | {{ env('APP_NAME', 'Base Template') }}</title>
+    <link rel="shortcut icon" href="/assets/resources/icon.png?v={{ config('app.version', '1.0.0') }}" type="image/png">
+
+    <meta name="csrf_token" content="{{ csrf_token() }}">
+
+    <link href="/lte/assets/libs/mohithg-switchery/switchery.min.css" rel="stylesheet" type="text/css" />
+    <link href="/lte/assets/libs/select2/css/select2.min.css" rel="stylesheet" type="text/css" />
+
+    {{-- QuillJs Styles --}}
+    <link href="/lte/assets/libs/quill/quill.snow.css" rel="stylesheet" type="text/css" />
+    <link href="/lte/assets/libs/quill/quill.bubble.css" rel="stylesheet" type="text/css" />
+
+    <script src="/lte/assets/libs/exceljs/exceljs.min.js"></script>
+    <script src="/lte/assets/libs/filesaver/FileSaver.min.js"></script>
+    <script src="/lte/assets/libs/jszip//jszip.min.js"></script>
+
+    {{-- DxDataGrid Styles --}}
+    <link href="/lte/assets/libs/dxdatagrid/css/dx.light.compact.css?v=06d3ebc8-645c-4d80-a600-c9652743c425"
+        rel="stylesheet" type="text/css" id="dg-default-stylesheet" />
+    <link href="/lte/assets/libs/dxdatagrid/css/dx.dark.compact.css?v=06d3ebc8-645c-4d80-a600-c9652743c425"
+        rel="stylesheet" type="text/css" id="dg-dark-stylesheet" disabled="disabled" />
+
+    @if ($route == 'Admin/Gallery.jsx')
+        <link href="/lte/assets/libs/magnific-popup/magnific-popup.css" rel="stylesheet" type="text/css" />
+    @elseif ($route == 'Admin/System.jsx')
+        <link rel="stylesheet" href="/lte/assets/libs/codemirror/codemirror.min.css">
+        <link rel="stylesheet" href="/lte/assets/libs/codemirror/themes/sode.css">
+    @endif
+
+    {{-- Bootstrap Styles --}}
+    <link href="/lte/assets/css/config/default/bootstrap.min.css" rel="stylesheet" type="text/css"
+        id="bs-default-stylesheet" />
+    <link href="/lte/assets/css/config/default/bootstrap-dark.min.css" rel="stylesheet" type="text/css"
+        id="bs-dark-stylesheet" disabled="disabled" />
+
+    {{-- App Styles --}}
+    <link href="/lte/assets/css/config/default/app.css" rel="stylesheet" type="text/css" id="app-default-stylesheet" />
+    <link href="/lte/assets/css/config/default/app-dark.css" rel="stylesheet" type="text/css" id="app-dark-stylesheet"
+        disabled="disabled" />
+
+    {{-- icons --}}
+    <link href="/lte/assets/css/icons.min.css" rel="stylesheet" type="text/css" />
+    {{-- Font Awesome --}}
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" integrity="sha512-iecdLmaskl7CVkqkXNQ/ZH/XLlvWZOJyj7Yy7tcenmpD1ypASozpmT/E0iPtmFIB46ZmdtAc9eNBvH0H/ZpiBw==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+
+    @vite('resources/js/' . $route)
+    @inertiaHead
+
+    @php
+        $colors = \App\Models\SystemColor::all();
+        $primaryColor = $colors->firstWhere('name', 'primary')?->description ?? '#6658dd';
+        $menuAdminColor = $colors->firstWhere('name', 'menu-admin')?->description;
+        // Si menu-admin está vacío o null, usar primary
+        $menuAdminColor = empty($menuAdminColor) ? $primaryColor : $menuAdminColor;
+        
+        // Función para detectar si un color es oscuro o claro
+        function isColorDark($hexColor) {
+            // Eliminar el # si existe
+            $hexColor = ltrim($hexColor, '#');
+            
+            // Convertir a RGB
+            $r = hexdec(substr($hexColor, 0, 2));
+            $g = hexdec(substr($hexColor, 2, 2));
+            $b = hexdec(substr($hexColor, 4, 2));
+            
+            // Calcular la luminosidad percibida (YIQ formula)
+            $yiq = (($r * 299) + ($g * 587) + ($b * 114)) / 1000;
+            
+            // Si YIQ >= 128, el color es claro; si < 128, es oscuro
+            return $yiq < 128;
+        }
+        
+        $textColor = isColorDark($menuAdminColor) ? '#ffffff' : '#6c757d';
+    @endphp
+
+    <style>
+        :root {
+            --menu-admin-color: {{ $menuAdminColor }};
+            --menu-admin-text-color: {{ $textColor }};
+        }
+
+        /* Aplicar color al menú lateral izquierdo completo (Menu.jsx) */
+        .left-side-menu-admin {
+            background-color: var(--menu-admin-color) !important;
+        }
+        
+        /* Ajustar color de texto según luminosidad del fondo - TODOS LOS ELEMENTOS */
+        .left-side-menu-admin,
+        .left-side-menu-admin *,
+        .left-side-menu-admin .user-box .user-name,
+        .left-side-menu-admin .user-box .left-user-info,
+        .left-side-menu-admin .user-box p,
+        .left-side-menu-admin .user-box a,
+        .left-side-menu-admin .list-inline a,
+        .left-side-menu-admin #sidebar-menu .menu-title,
+        .left-side-menu-admin #sidebar-menu .side-nav-link,
+        .left-side-menu-admin #sidebar-menu .side-nav-link span,
+        .left-side-menu-admin #sidebar-menu .side-nav-link i,
+        .left-side-menu-admin #sidebar-menu a,
+        .left-side-menu-admin #sidebar-menu li,
+        .left-side-menu-admin .form-control,
+        .left-side-menu-admin .mdi,
+        .left-side-menu-admin i {
+            color: var(--menu-admin-text-color) !important;
+        }
+        
+        /* Placeholder del buscador */
+        .left-side-menu-admin .form-control::placeholder {
+            color: var(--menu-admin-text-color) !important;
+            opacity: 0.6;
+        }
+        
+        /* Bordes del input del buscador */
+        .left-side-menu-admin .form-control {
+            border-color: var(--menu-admin-text-color) !important;
+            opacity: 0.3;
+        }
+        
+        /* Hover en links del menú */
+        .left-side-menu-admin #sidebar-menu .side-nav-link:hover,
+        .left-side-menu-admin #sidebar-menu .side-nav-link:hover * {
+            color: var(--menu-admin-text-color) !important;
+            opacity: 0.8;
+        }
+
+        /* Aplicar color SOLO a la sección del logo en el navbar (NavBar.jsx) */
+        .navbar-custom .logo-box {
+            background-color: var(--menu-admin-color) !important;
+        }
+
+        .cursor-pointer {
+            cursor: pointer;
+        }
+
+        .tippy-tooltip {
+            padding: 0;
+        }
+
+        .dx-datagrid-content .dx-datagrid-table .dx-row>td {
+            vertical-align: middle;
+        }
+    </style>
+</head>
+
+<body class="loading"
+    data-layout='{"mode": "horizontal", "width": "fluid", "menuPosition": "fixed", "sidebar": { "color": "light", "size": "default", "showuser": true}, "topbar": {"color": "light"}, "showRightSidebarOnPageLoad": false}'>
+    @php
+        $tinyApiKey = $generals->where('correlative', 'tiny_api_key')->first()?->description ?? null;
+    @endphp
+    <script>
+        window.API_KEY_TINYMCE = "{{ $tinyApiKey }}";
+    </script>
+    @inertia
+
+    <div class="rightbar-overlay"></div>
+    <script src="/lte/assets/libs/qrcodejs/qrcode.min.js"></script>
+    <!-- Extends js -->
+    <script src="/assets/js/file.extend.js"></script>
+    <script src="/assets/js/storage.extend.js"></script>
+
+    <!-- Vendor js -->
+    <script src="/lte/assets/js/vendor.min.js"></script>
+
+    @if ($route == 'home')
+        <script src="/lte/assets/libs/jquery-knob/jquery.knob.min.js"></script>
+    @elseif ($route == 'Admin/Gallery.jsx')
+        <script src="/lte/assets/libs/isotope-layout/isotope.pkgd.min.js"></script>
+        <script src="/lte/assets/libs/magnific-popup/jquery.magnific-popup.min.js"></script>
+        <script src="/lte/assets/js/pages/gallery.init.js"></script>
+    @elseif ($route == 'Admin/System.jsx')
+        <script src="/lte/assets/libs/jquery-ui/jquery-ui.min.js"></script>
+        <script src="/lte/assets/libs/codemirror/codemirror.min.js"></script>
+        <script src="/lte/assets/libs/codemirror/beautify-html.min.js"></script>
+        <script src="/lte/assets/libs/codemirror/mode/xml/xml.min.js"></script>
+        <script src="/lte/assets/libs/codemirror/mode/javascript/javascript.min.js"></script>
+        <script src="/lte/assets/libs/codemirror/mode/css/css.min.js"></script>
+        <script src="/lte/assets/libs/codemirror/mode/htmlmixed/htmlmixed.min.js"></script>
+    @endif
+    <script src="/lte/assets/libs/mohithg-switchery/switchery.min.js"></script>
+    <script src="/lte/assets/libs/select2/js/select2.full.min.js"></script>
+    <script src="/lte/assets/libs/tippy.js/tippy.all.min.js"></script>
+
+    <!-- App js -->
+    <script src="/lte/assets/js/app.js?v={{ uniqid() }}"></script>
+
+    <script src="/lte/assets/libs/dxdatagrid/js/dx.all.js"></script>
+    <script src="/lte/assets/libs/dxdatagrid/js/localization/dx.messages.es.js"></script>
+    <script src="/lte/assets/libs/dxdatagrid/js/localization/dx.messages.en.js"></script>
+    <script src="/lte/assets/libs/moment/min/moment.min.js"></script>
+    <script src="/lte/assets/libs/moment/moment-timezone.js"></script>
+    <script src="/lte/assets/libs/moment/locale/es.js"></script>
+    <script src="/lte/assets/libs/quill/quill.min.js"></script>
+</body>
+
+</html>
