@@ -9,7 +9,9 @@ use App\Notifications\InviteProviderNotification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Notification;
+use Exception;
 use SoDe\Extend\Crypto;
+use SoDe\Extend\Response;
 
 class ProviderController extends BasicController
 {
@@ -27,64 +29,71 @@ class ProviderController extends BasicController
 
     public function save(Request $request): \Illuminate\Http\Response|\Illuminate\Routing\ResponseFactory
     {
-        $data = $request->all();
+        $response = Response::simpleTryCatch(function () use ($request) {
+            $data = $request->all();
 
-        if (!empty($data['password'])) {
-            $data['password'] = bcrypt($data['password']);
-        } else {
-            unset($data['password']);
-        }
+            $existingUser = User::where('email', $data['email'])
+                ->when(!empty($data['id']), fn($q) => $q->where('id', '!=', $data['id']))
+                ->first();
 
-        $user = $this->model::updateOrCreate(['id' => $data['id'] ?? null], $data);
-
-        if ($user) {
-            $user->assignRole('Provider');
-            if (!$user->uuid) {
-                $user->uuid = Crypto::randomUUID();
-                $user->save();
+            if ($existingUser) {
+                $roles = $existingUser->getRoleNames()->join(', ');
+                throw new Exception("El correo {$data['email']} ya se encuentra registrado" . ($roles ? " con el rol: {$roles}." : "."));
             }
-        }
 
-        return response([
-            'status' => 200,
-            'message' => 'Proveedor guardado exitosamente',
-            'data' => $user
-        ], 200);
+            if (!empty($data['password'])) {
+                $data['password'] = bcrypt($data['password']);
+            } else {
+                unset($data['password']);
+            }
+
+            $user = $this->model::updateOrCreate(['id' => $data['id'] ?? null], $data);
+
+            if ($user) {
+                $user->assignRole('Provider');
+                if (!$user->uuid) {
+                    $user->uuid = Crypto::randomUUID();
+                    $user->save();
+                }
+            }
+
+            return $user;
+        });
+
+        return response($response->toArray(), $response->status);
     }
 
     public function invite(Request $request)
     {
-        $request->validate([
-            'email' => 'required|email',
-        ]);
+        $response = Response::simpleTryCatch(function () use ($request) {
+            $request->validate([
+                'email' => 'required|email',
+            ]);
 
-        $email = $request->input('email');
+            $email = $request->input('email');
 
-        if (User::where('email', $email)->exists()) {
-            return response([
-                'status' => 400,
-                'message' => 'Este correo ya está registrado como usuario.'
-            ], 400);
-        }
+            if (User::where('email', $email)->exists()) {
+                throw new Exception('Este correo ya está registrado como usuario.');
+            }
 
-        $token = Crypto::randomUUID();
-        $invitationUrl = url('/crear-cuenta?type=provider&token=' . $token);
+            $token = Crypto::randomUUID();
+            $invitationUrl = url('/crear-cuenta?type=provider&token=' . $token);
 
-        \App\Models\ProviderInvitation::updateOrCreate(
-            ['email' => $email],
-            [
-                'token' => $token,
-                'status' => 'pending',
-                'expires_at' => now()->addDays(7)
-            ]
-        );
+            \App\Models\ProviderInvitation::updateOrCreate(
+                ['email' => $email],
+                [
+                    'token' => $token,
+                    'status' => 'pending',
+                    'expires_at' => now()->addDays(7)
+                ]
+            );
 
-        Notification::route('mail', $email)->notify(new InviteProviderNotification($invitationUrl, $token, $email));
+            Notification::route('mail', $email)->notify(new InviteProviderNotification($invitationUrl, $token, $email));
 
-        return response([
-            'status' => 200,
-            'message' => 'Invitación enviada exitosamente'
-        ], 200);
+            return 'Invitación enviada exitosamente';
+        });
+
+        return response($response->toArray(), $response->status);
     }
 
     public function getInvitationByToken($token)
