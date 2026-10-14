@@ -1,0 +1,250 @@
+[
+    {
+        "id": "bf3dbee8-8b1e-4857-b3c4-1a673836bac6",
+        "name": "Home",
+        "path": "\/",
+        "extends_base": true,
+        "menuable": false,
+        "pseudo_path": null,
+        "sitemapable": true,
+        "referrable": true
+    },
+    {
+        "id": "67e6d2b7-c6f2-4b86-b8c4-1cf9ecc7995e",
+        "name": "Catalogo",
+        "path": "\/catalogo",
+        "extends_base": true,
+        "pseudo_path": "\/catalogo",
+        "menuable": true,
+        "using": {
+            "categories": {
+                "model": "Category",
+                "fields": [
+                    "id",
+                    "slug",
+                    "order_index",
+                    "name"
+                ],
+                "relations": [
+                    "subcategories"
+                ]
+            },
+            "brands": {
+                "model": "Brand",
+                "fields": [
+                    "id",
+                    "slug",
+                    "order_index",
+                    "name"
+                ],
+                "field": null,
+                "relations": []
+            },
+            "subcategories": {
+                "model": "SubCategory",
+                "fields": [
+                    "id",
+                    "slug",
+                    "order_index"
+                ]
+            }
+        },
+        "sitemapable": true,
+        "referrable": true
+    },
+    {
+        "id": "a91d0f23-921a-4d6c-a4fb-1e641b5e51b9",
+        "name": "Producto",
+        "path": "\/product\/{slug}",
+        "extends_base": true,
+        "pseudo_path": "\/product",
+        "menuable": false,
+        "referrable": true,
+        "sitemapable": true,
+        "using": {
+            "slug": {
+                "model": "Item",
+                "field": "slug",
+                "relations": [
+                    "collection",
+                    "category",
+                    "subcategory",
+                    "brand",
+                    "store",
+                    "tags",
+                    "combos",
+                    "images",
+                    "specifications",
+                    "features",
+                    "attributes",
+                    "variants"
+                ]
+            }
+        }
+    },
+    {
+        "id": "af066082-6934-4cce-8477-0b85b24fb4c4",
+        "name": "Carrito",
+        "path": "\/cart",
+        "extends_base": true,
+        "pseudo_path": "\/cart",
+        "referrable": true
+    },
+    {
+        "id": "e0712a5c-0f82-4746-bd81-148f5661a87e",
+        "name": "Nosotros",
+        "path": "\/nosotros",
+        "extends_base": true,
+        "pseudo_path": "\/nosotros",
+        "menuable": true,
+        "using": {
+            "aboutuses": {
+                "model": "Aboutus"
+            },
+            "webdetail": {
+                "model": "WebDetail"
+            },
+            "strengths": {
+                "model": "Strength"
+            }
+        },
+        "referrable": true,
+        "sitemapable": true
+    },
+    {
+        "id": "37c3e21a-66dd-4572-b2c0-3c92f1d7bcf9",
+        "name": "Blogs",
+        "path": "\/blogs",
+        "extends_base": true,
+        "pseudo_path": "\/blogs",
+        "menuable": true,
+        "using": {
+            "posts": {
+                "model": "Post"
+            },
+            "categories": {
+                "model": "Category",
+                "fields": [
+                    "id",
+                    "name",
+                    "slug"
+                ]
+            }
+        },
+        "sitemapable": true,
+        "referrable": true
+    },
+    {
+        "id": "02088b84-b0a2-42b5-befd-842991e219a0",
+        "name": "Contacto",
+        "path": "\/contacto",
+        "extends_base": true,
+        "menuable": true,
+        "pseudo_path": "\/contacto",
+        "referrable": true,
+        "sitemapable": true
+    },
+    {
+        "id": "23f488b0-1d2f-496b-8339-cb588c6abc14",
+        "name": "Iniciar sesi\u00f3n",
+        "path": "\/iniciar-sesion",
+        "extends_base": true,
+        "pseudo_path": "\/iniciar-sesion",
+        "sitemapable": true,
+        "referrable": true
+    },
+    {
+        "id": "df01d5fe-6b9d-4403-8e44-f89bd28e9061",
+        "name": "Crear cuenta",
+        "path": "\/crear-cuenta",
+        "extends_base": true,
+        "pseudo_path": "\/crear-cuenta",
+        "sitemapable": true,
+        "referrable": true
+    },
+    {
+        "id": "c7d7c22f-a6e9-4467-956e-3f8dbe93cdaa",
+        "name": "Forgot Password",
+        "path": "\/forgot-password",
+        "extends_base": true,
+        "pseudo_path": "\/forgot-password",
+        "sitemapable": true,
+        "referrable": true
+    },
+    {
+        "id": "b14cd5e7-8036-488f-8061-4683ec2e6fce",
+        "name": "Restablecer contrase\u00f1a",
+        "path": "\/reset-password",
+        "extends_base": true,
+        "pseudo_path": "\/reset-password",
+        "using": {
+            "token": {
+                "model": null
+            },
+            "email": {
+                "model": null
+            }
+        },
+        "sitemapable": true,
+        "referrable": true
+    },
+    {
+        "id": "9e81a747-2f94-4f93-9262-4801126e7b5d",
+        "name": "LIbro de Reclamaciones",
+        "path": "\/libro-reclamaciones",
+        "extends_base": true,
+        "pseudo_path": "\/libro-reclamaciones",
+        "sitemapable": true,
+        "referrable": true
+    },
+    {
+        "id": "fc3b2a4c-63a8-4c62-9b62-c5669eeddaed",
+        "name": "Post",
+        "path": "\/post\/{slug}",
+        "extends_base": true,
+        "pseudo_path": "\/post",
+        "using": {
+            "slug": {
+                "model": "Post",
+                "field": "slug",
+                "relations": [
+                    "category"
+                ]
+            }
+        },
+        "sitemapable": true,
+        "referrable": true
+    },
+    {
+        "id": "d093914b-7231-45a4-b089-4709a58cc0be",
+        "name": "Politicas de privacidad",
+        "path": "\/politicas-de-privacidad",
+        "extends_base": true,
+        "pseudo_path": "\/politicas-de-privacidad",
+        "sitemapable": true
+    },
+    {
+        "id": "42568122-80f0-42d1-a8d3-5498caf1bb52",
+        "name": "T\u00e9rminos y Condiciones",
+        "path": "\/terminos-y-condiciones",
+        "extends_base": true,
+        "pseudo_path": "\/terminos-y-condiciones",
+        "sitemapable": true
+    },
+    {
+        "id": "262fd464-a1a7-47bd-a448-eb88e9e90f58",
+        "name": "Pol\u00edticas de Devoluci\u00f3n y Cambio",
+        "path": "\/politicas-de-devolucion-y-cambio",
+        "extends_base": true,
+        "pseudo_path": "\/politicas-de-devolucion-y-cambio",
+        "sitemapable": true
+    },
+    {
+        "id": "4911508a-f264-4dfe-bc5a-dfa571f0813d",
+        "name": "Pol\u00edticas de Env\u00edo",
+        "path": "\/politicas-de-envio",
+        "extends_base": true,
+        "pseudo_path": "\/politicas-de-envio",
+        "sitemapable": true
+    }
+]

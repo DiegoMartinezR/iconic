@@ -25,9 +25,9 @@ composer.lock
 /.vscode
 /storage/profile
 /storage/public
-/storage/app/pages.json
+#/storage/app/pages.json
 /storage/app/pages.json.bak
-/storage/app/backup.sql
+#/storage/app/backup.sql
 /public/assets/resources/icon.png
 /public/assets/resources/logo.png
 /public/assets/resources/loading.png
