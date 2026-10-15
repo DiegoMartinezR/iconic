@@ -18,7 +18,7 @@ import SellerTreeCard from "../Components/Adminto/SellerTreeCard";
 const sellersRest = new SellersRest();
 const itemsRest = new ItemsRest();
 
-const Sellers = ({ }) => {
+const Sellers = ({ ranks = [] }) => {
     const gridRef = useRef();
     const modalRef = useRef();
     const inviteModalRef = useRef();
@@ -36,6 +36,7 @@ const Sellers = ({ }) => {
     const phoneRef = useRef();
     const phonePrefixRef = useRef();
     const dniRef = useRef();
+    const rankIdRef = useRef();
     const roleRef = useRef();
     const inviteEmailRef = useRef();
     const whatsappNumberRef = useRef();
@@ -66,6 +67,14 @@ const Sellers = ({ }) => {
         const prefix = data?.phone_prefix ?? "+51";
         phonePrefixRef.current.value = prefix;
         $(phonePrefixRef.current).val(prefix).trigger("change");
+
+        // Rango de Plan de Carrera (Promotor Junior por defecto para nuevos)
+        const defaultRank = ranks.find(r => r.order_index === 0 || (r.name && r.name.toLowerCase().includes("promotor junior"))) || ranks[0];
+        const selectedRankId = data?.rank_id || (data?.id ? "" : (defaultRank?.id || ""));
+        if (rankIdRef.current) {
+            rankIdRef.current.value = selectedRankId;
+            $(rankIdRef.current).val(selectedRankId).trigger("change");
+        }
 
         dniRef.current.value = data?.dni ?? data?.document_number ?? "";
         whatsappNumberRef.current.value = data?.whatsapp_number ?? "";
@@ -110,6 +119,7 @@ const Sellers = ({ }) => {
             phone: phoneRef.current.value,
             phone_prefix: phonePrefixRef.current.value,
             dni: dniRef.current.value,
+            rank_id: rankIdRef.current?.value || null,
             whatsapp_number: whatsappNumberRef.current.value,
             whatsapp_message: whatsappMessageRef.current.value,
             role: "Seller", // Force Seller Role
@@ -983,8 +993,22 @@ const Sellers = ({ }) => {
                         eRef={phoneRef}
                         label="Teléfono"
                         type="tel"
-                        col="col-md-9"
+                        col="col-md-3"
                     />
+                    <div className="col-md-6">
+                        <SelectFormGroup
+                            eRef={rankIdRef}
+                            label="Rango (Plan de Carrera)"
+                            dropdownParent="#principal-container"
+                        >
+                            <option value="">-- Sin Rango --</option>
+                            {ranks.map((rank) => (
+                                <option key={rank.id} value={rank.id}>
+                                    {rank.name}
+                                </option>
+                            ))}
+                        </SelectFormGroup>
+                    </div>
 
                     <div className="col-12">
                         <hr />

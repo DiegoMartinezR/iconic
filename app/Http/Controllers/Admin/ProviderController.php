@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\BasicController;
+use App\Models\Rank;
 use App\Models\User;
 use App\Models\SellerInvitation;
 use App\Notifications\InviteProviderNotification;

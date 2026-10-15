@@ -56,6 +56,23 @@ class SellerController extends BasicController
             unset($data['password']);
         }
 
+        // Si es un nuevo vendedor y no se especificó rango, asignar por defecto Promotor Junior (order_index = 0)
+        if (empty($data['id']) && empty($data['rank_id'])) {
+            $initialRank = Rank::where('status', true)
+                ->where(function ($q) {
+                    $q->where('name', 'like', '%promotor junior%')
+                      ->orWhere('order_index', 0);
+                })
+                ->orderBy('order_index', 'asc')
+                ->first() ?? Rank::where('status', true)->orderBy('order_index', 'asc')->first();
+
+            if ($initialRank) {
+                $data['rank_id'] = $initialRank->id;
+            }
+        } elseif (array_key_exists('rank_id', $data)) {
+            $data['rank_id'] = !empty($data['rank_id']) ? $data['rank_id'] : null;
+        }
+
         $user = $this->model::updateOrCreate(['id' => $data['id'] ?? null], $data);
 
         if ($user) {
@@ -81,7 +98,7 @@ class SellerController extends BasicController
         return response([
             'status' => 200,
             'message' => 'Vendedor guardado exitosamente',
-            'data' => $user
+            'data' => $user->load('rank')
         ], 200);
     }
 
@@ -207,7 +224,8 @@ class SellerController extends BasicController
 
         return [
             'storeUrl' => $storeUrl,
-            'user' => $user
+            'user' => $user,
+            'ranks' => Rank::where('status', true)->orderBy('order_index', 'asc')->get(['id', 'name', 'color', 'order_index']),
         ];
     }
 

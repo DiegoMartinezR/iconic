@@ -254,13 +254,17 @@ const Ranks = ({}) => {
                                     onClick: () => onModalOpen(data),
                                 }),
                             );
-                            container.append(
-                                DxButton({
-                                    className: "btn btn-xs btn-soft-danger",
-                                    icon: "fa fa-trash",
-                                    onClick: () => onDelete(data.id),
-                                }),
-                            );
+                            const isInitialRank = data.name?.toLowerCase().includes("promotor junior") || data.order_index == 0;
+                            if (!isInitialRank) {
+                                container.append(
+                                    DxButton({
+                                        className: "btn btn-xs btn-soft-danger",
+                                        icon: "fa fa-trash",
+                                        title: "Eliminar",
+                                        onClick: () => onDelete(data.id),
+                                    }),
+                                );
+                            }
                         },
                     },
                 ]}

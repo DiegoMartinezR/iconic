@@ -193,6 +193,20 @@ class AuthClientController extends BasicController
                         // Cambiar rol a Seller
                         $user->syncRoles(['Seller']);
 
+                        // Asignar rango inicial (Promotor Junior) por defecto a nuevos vendedores
+                        $initialRank = \App\Models\Rank::where('status', true)
+                            ->where(function ($q) {
+                                $q->where('name', 'like', '%promotor junior%')
+                                  ->orWhere('order_index', 0);
+                            })
+                            ->orderBy('order_index', 'asc')
+                            ->first() ?? \App\Models\Rank::where('status', true)->orderBy('order_index', 'asc')->first();
+
+                        if ($initialRank && !$user->rank_id) {
+                            $user->rank_id = $initialRank->id;
+                            $user->save();
+                        }
+
                         // Guardar referido: leer de la cookie, del request ref, o de la job_application
                         $referralCode = $request->cookie('referral_code');
                         if (!$referralCode) {
