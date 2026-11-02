@@ -15,6 +15,17 @@ class InventoryVault extends Model
         'user_id',
         'item_id',
         'quantity',
+        'destination',
+        'claim_type',
+        'claim_status',
+        'claim_address',
+        'claim_notes',
+        'claimed_at',
+    ];
+
+    protected $casts = [
+        'quantity' => 'integer',
+        'claimed_at' => 'datetime',
     ];
 
     /**

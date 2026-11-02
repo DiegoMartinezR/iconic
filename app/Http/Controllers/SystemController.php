@@ -231,8 +231,29 @@ class SystemController extends BasicController
                     }
 
                     $shortID = Crypto::short();
-                    $system->itemsId = $shortID;
                     $items = $query->get();
+
+                    if (($component['using']['model'] ?? null) === 'Item') {
+                        $referralCode = \Illuminate\Support\Facades\Cookie::get('referral_code') ?? $request->get('ref');
+                        if ($referralCode) {
+                            $referrerUser = \App\Models\User::where('uuid', $referralCode)->first();
+                            if ($referrerUser) {
+                                $vaultStockMap = \App\Models\InventoryVault::where('user_id', $referrerUser->id)
+                                    ->where('destination', 'for_sale')
+                                    ->where('quantity', '>', 0)
+                                    ->whereIn('item_id', $items->pluck('id'))
+                                    ->pluck('quantity', 'item_id');
+
+                                foreach ($items as $itm) {
+                                    if (isset($vaultStockMap[$itm->id])) {
+                                        $itm->stock = ($itm->stock ?? 0) + $vaultStockMap[$itm->id];
+                                        $itm->sold_out = false;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     $props['systemItems'][$shortID] = $items;
 
                     if ($component['using']['model'] === 'Slider' && !isset($props['reactData']['firstActiveSliderImage'])) {
@@ -333,6 +354,26 @@ class SystemController extends BasicController
                     if (!$result) {
                         abort(404);
                     }
+
+                    if ($model === 'Item') {
+                        $referralCode = \Illuminate\Support\Facades\Cookie::get('referral_code') ?? $request->get('ref');
+                        if ($referralCode) {
+                            $referrerUser = \App\Models\User::where('uuid', $referralCode)->first();
+                            if ($referrerUser) {
+                                $vaultStock = \App\Models\InventoryVault::where('user_id', $referrerUser->id)
+                                    ->where('item_id', $result->id)
+                                    ->where('destination', 'for_sale')
+                                    ->where('quantity', '>', 0)
+                                    ->sum('quantity');
+
+                                if ($vaultStock > 0) {
+                                    $result->stock = ($result->stock ?? 0) + $vaultStock;
+                                    $result->sold_out = false;
+                                }
+                            }
+                        }
+                    }
+
                     $props['filteredData'][$key] = $result;
                     // Espejamos también bajo la clave del modelo (ej: 'Item')
                     // para que el frontend pueda leerlo desde filteredData.Item

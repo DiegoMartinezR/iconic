@@ -8,6 +8,7 @@ use App\Models\JobApplication;
 use App\Models\SellerInvitation;
 use App\Notifications\InviteSellerNotification;
 use App\Models\InventoryVault;
+use App\Models\General;
 use App\Models\Item;
 use App\Models\Commission;
 use App\Models\Rank;
@@ -216,6 +217,14 @@ class SellerController extends BasicController
                 'commissionsMonth' => $commissionsMonth,
                 'totalReferrerSales' => $totalReferrerSales,
                 'vault' => InventoryVault::with('item')->where('user_id', $user->id)->get(),
+                'whatsapp_phone' => (function () {
+                    $raw = General::where('correlative', 'phone_whatsapp')->value('description') ?? '';
+                    $clean = preg_replace('/[^0-9]/', '', $raw);
+                    if (strlen($clean) === 9 && !str_starts_with($clean, '51')) {
+                        $clean = '51' . $clean;
+                    }
+                    return $clean;
+                })(),
             ];
         }
 
@@ -496,6 +505,94 @@ class SellerController extends BasicController
     {
         $this->reactView = 'Seller/Profile';
         return $this->reactView($request);
+    }
+
+    public function updateVaultDestination(Request $request)
+    {
+        $request->validate([
+            'id' => 'required',
+            'destination' => 'required|in:for_sale,claim_physical',
+            'claim_type' => 'nullable|in:delivery,store_pickup',
+            'claim_address' => 'nullable|string|max:500',
+            'claim_notes' => 'nullable|string|max:1000',
+        ]);
+
+        $userId = Auth::id();
+        $vault = InventoryVault::with('item')->where('id', $request->id)
+            ->where('user_id', $userId)
+            ->first();
+
+        if (!$vault) {
+            return response()->json([
+                'status' => 404,
+                'message' => 'Registro de bóveda no encontrado.'
+            ], 404);
+        }
+
+        if ($request->destination === 'claim_physical') {
+            if ($request->claim_type === 'delivery' && empty(trim($request->claim_address ?? ''))) {
+                return response()->json([
+                    'status' => 422,
+                    'message' => 'Por favor, ingresa la dirección de entrega para la modalidad de delivery.'
+                ], 422);
+            }
+
+            $vault->destination = 'claim_physical';
+            $vault->claim_type = $request->claim_type ?? 'delivery';
+            $vault->claim_address = $request->claim_address;
+            $vault->claim_notes = $request->claim_notes;
+            $vault->claim_status = 'pending';
+            $vault->claimed_at = now();
+            $vault->save();
+
+            // WhatsApp link armado
+            $user = Auth::user();
+            $rawPhone = General::where('correlative', 'phone_whatsapp')->value('description') ?? '';
+            $cleanPhone = preg_replace('/[^0-9]/', '', $rawPhone);
+            if (strlen($cleanPhone) === 9 && !str_starts_with($cleanPhone, '51')) {
+                $cleanPhone = '51' . $cleanPhone;
+            }
+
+            $productName = $vault->item->name ?? 'Producto';
+            $qty = $vault->quantity;
+            $modality = $vault->claim_type === 'delivery' ? 'Delivery a domicilio' : 'Recojo en tienda';
+            $address = $vault->claim_address ? "\n*Dirección:* " . $vault->claim_address : '';
+            $notes = $vault->claim_notes ? "\n*Notas:* " . $vault->claim_notes : '';
+
+            $message = "¡Hola! Soy {$user->name} ({$user->email}).\n"
+                     . "He solicitado reclamar mi producto de la bóveda:\n"
+                     . "📦 *Producto:* {$productName} (x{$qty} unid.)\n"
+                     . "🛵 *Modalidad:* {$modality}"
+                     . $address
+                     . $notes . "\n\n"
+                     . "Deseo coordinar la entrega. ¡Muchas gracias!";
+
+            $whatsappUrl = !empty($cleanPhone)
+                ? "https://wa.me/{$cleanPhone}?text=" . rawurlencode($message)
+                : null;
+
+            return response()->json([
+                'status' => 200,
+                'message' => 'Reclamo físico registrado correctamente. Procede a coordinar por WhatsApp.',
+                'whatsapp_url' => $whatsappUrl,
+                'data' => $vault
+            ]);
+        } else {
+            // destination === 'for_sale'
+            $vault->destination = 'for_sale';
+            $vault->claim_type = null;
+            $vault->claim_address = null;
+            $vault->claim_notes = null;
+            $vault->claim_status = null;
+            $vault->claimed_at = null;
+            $vault->save();
+
+            return response()->json([
+                'status' => 200,
+                'message' => 'Producto configurado para venta en tu tienda online. ¡Ganarás el 100% de la venta!',
+                'data' => $vault
+            ]);
+        }
     }
 
     public function paginateVault(Request $request)

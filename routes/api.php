@@ -818,6 +818,8 @@ Route::middleware('auth')->group(function () {
     Route::post('/withdrawals/paginate', [\App\Http\Controllers\Admin\WithdrawalController::class, 'paginate']);
     Route::post('/withdrawals/{id}/process', [\App\Http\Controllers\Admin\WithdrawalController::class, 'process']);
     Route::get('/withdrawals/media/{uuid}', [\App\Http\Controllers\Admin\WithdrawalController::class, 'media']);
+    Route::get('/settlements/data', [\App\Http\Controllers\Admin\SettlementController::class, 'getSettlementData']);
+    Route::post('/settlements/process-withdrawal/{id}', [\App\Http\Controllers\Admin\SettlementController::class, 'processWithdrawal']);
   });
 
   Route::middleware('can:Admin')->prefix('admin')->group(function () {
@@ -931,10 +933,12 @@ Route::middleware('auth')->group(function () {
   });
   Route::middleware('can:Seller')->prefix('seller')->group(function () {
     Route::post('/vault/paginate', [SellerController::class, 'paginateVault']);
+    Route::post('/vault/destination', [SellerController::class, 'updateVaultDestination']);
     Route::post('/orders/paginate', [\App\Http\Controllers\Seller\SellerOrderController::class, 'paginate']);
     Route::get('/orders/{id}', [\App\Http\Controllers\Seller\SellerOrderController::class, 'get']);
     Route::get('/sale-statuses/by-sale/{id}', [\App\Http\Controllers\Admin\SaleStatusController::class, 'bySale']);
     Route::post('/catalogs/paginate', [\App\Http\Controllers\Seller\CatalogController::class, 'paginate']);
+    Route::get('/settlements/data', [\App\Http\Controllers\Admin\SettlementController::class, 'getSettlementData']);
   });
 });
 

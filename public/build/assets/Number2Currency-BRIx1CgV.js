@@ -1,0 +1,1 @@
+import{G as t}from"./CreateReactScript-DJyHG-iq.js";const i=(t,i="en-US")=>(Number(t)||0).toLocaleString(i,{maximumFractionDigits:2,minimumFractionDigits:2}),r=()=>"usd"===(t.get("currency")||"pen")?"$":"S/";export{r as C,i as N};

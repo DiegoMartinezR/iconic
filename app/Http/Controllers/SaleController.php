@@ -156,12 +156,29 @@ class SaleController extends BasicController
     static function create(array $sale, array $details): array
     {
         try {
+            $referrerId = $sale['referrer_id'] ?? null;
+            if (!$referrerId) {
+                $referralCode = \Illuminate\Support\Facades\Cookie::get('referral_code');
+                if ($referralCode) {
+                    $referrerId = \App\Models\User::where('uuid', $referralCode)->value('id');
+                }
+            }
+
             // Validar stock antes de crear la venta
             foreach ($details as $detail) {
                 $itemType = $detail['type'] ?? 'item';
                 if ($itemType === 'item') {
                     $itemJpa = Item::find($detail['id']);
-                    if ($itemJpa && !$itemJpa->stock_unlimited && $itemJpa->stock < $detail['quantity']) {
+                    $vaultStock = 0;
+                    if ($referrerId) {
+                        $vaultStock = InventoryVault::where('user_id', $referrerId)
+                            ->where('item_id', $detail['id'])
+                            ->where('destination', 'for_sale')
+                            ->where('quantity', '>', 0)
+                            ->sum('quantity');
+                    }
+                    $availableStock = ($itemJpa->stock ?? 0) + $vaultStock;
+                    if ($itemJpa && !$itemJpa->stock_unlimited && $availableStock < $detail['quantity']) {
                         throw new \Exception("El producto {$itemJpa->name} no tiene suficiente stock disponible.");
                     }
                 }
@@ -406,6 +423,7 @@ class SaleController extends BasicController
                 if ($saleJpa->referrer_id) {
                     $vault = InventoryVault::where('user_id', $saleJpa->referrer_id)
                         ->where('item_id', $itemJpa->id)
+                        ->where('destination', 'for_sale')
                         ->where('quantity', '>', 0)
                         ->first();
                     if ($vault) {
@@ -464,6 +482,7 @@ class SaleController extends BasicController
                     if ($saleJpa->referrer_id) {
                         $vault = InventoryVault::where('user_id', $saleJpa->referrer_id)
                             ->where('item_id', $comboItem->id)
+                            ->where('destination', 'for_sale')
                             ->where('quantity', '>', 0)
                             ->first();
                         if ($vault) {
@@ -688,6 +707,7 @@ class SaleController extends BasicController
                         if ($jpa->referrer_id) {
                             $vault = InventoryVault::where('user_id', $jpa->referrer_id)
                                 ->where('item_id', $comboItem->id)
+                                ->where('destination', 'for_sale')
                                 ->where('quantity', '>', 0)
                                 ->first();
                             if ($vault) {
@@ -728,6 +748,7 @@ class SaleController extends BasicController
                     if ($jpa->referrer_id) {
                         $vault = InventoryVault::where('user_id', $jpa->referrer_id)
                             ->where('item_id', $itemJpa->id)
+                            ->where('destination', 'for_sale')
                             ->where('quantity', '>', 0)
                             ->first();
                         if ($vault) {

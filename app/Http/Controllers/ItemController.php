@@ -904,9 +904,30 @@ class ItemController extends BasicController
     public function verifyStock(Request $request)
     {
         $response = Response::simpleTryCatch(function () use ($request) {
-            return Item::select(['id', 'price', 'discount', 'name', 'stock', 'stock_unlimited'])
-                ->whereIn('id', $request->all())
+            $ids = is_array($request->all()) ? array_values(array_filter($request->all(), fn($v) => is_string($v) || is_numeric($v))) : [];
+            $items = Item::select(['id', 'price', 'discount', 'name', 'stock', 'stock_unlimited'])
+                ->whereIn('id', $ids)
                 ->get();
+
+            $referralCode = \Illuminate\Support\Facades\Cookie::get('referral_code') ?? $request->get('ref');
+            if ($referralCode) {
+                $referrerUser = \App\Models\User::where('uuid', $referralCode)->first();
+                if ($referrerUser) {
+                    $vaultItems = \App\Models\InventoryVault::where('user_id', $referrerUser->id)
+                        ->where('destination', 'for_sale')
+                        ->where('quantity', '>', 0)
+                        ->whereIn('item_id', $items->pluck('id'))
+                        ->pluck('quantity', 'item_id');
+
+                    foreach ($items as $item) {
+                        if (isset($vaultItems[$item->id])) {
+                            $item->stock = ($item->stock ?? 0) + $vaultItems[$item->id];
+                        }
+                    }
+                }
+            }
+
+            return $items;
         });
 
         return response($response->toArray(), $response->status);

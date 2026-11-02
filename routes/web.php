@@ -200,6 +200,7 @@ Route::middleware(['can:Admin', 'auth'])->prefix('admin')->group(function () {
     Route::get('/sellers', [AdminSellerController::class, 'reactView'])->name('Admin/Sellers.jsx');
     Route::get('/withdrawals', [\App\Http\Controllers\Admin\WithdrawalController::class, 'reactView'])->name('Admin/Withdrawals.jsx');
     Route::post('/withdrawals/{id}/process', [\App\Http\Controllers\Admin\WithdrawalController::class, 'process']);
+    Route::get('/settlements', [\App\Http\Controllers\Admin\SettlementController::class, 'reactView'])->name('Admin/Settlements.jsx');
     Route::get('/providers', [AdminProviderController::class, 'reactView'])->name('Admin/Providers.jsx');
 
 
@@ -234,6 +235,7 @@ Route::middleware(['auth', 'can:Seller'])->prefix('seller')->group(function () {
     Route::get('/referrals', [AdminSellerController::class, 'referrals'])->name('Seller/Referrals.jsx');
     Route::get('/wallet', [\App\Http\Controllers\Admin\WithdrawalController::class, 'wallet'])->name('Seller/Wallet.jsx');
     Route::post('/wallet/withdraw', [\App\Http\Controllers\Admin\WithdrawalController::class, 'storeRequest']);
+    Route::get('/settlements', [\App\Http\Controllers\Admin\SettlementController::class, 'sellerView'])->name('Seller/Settlements.jsx');
     Route::get('/catalogs', [\App\Http\Controllers\Seller\CatalogController::class, 'reactView'])->name('Seller/Catalogs.jsx');
 });
 

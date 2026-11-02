@@ -21,6 +21,77 @@ use Illuminate\Support\Facades\Log;
 
 class PaymentController extends Controller
 {
+    private function validateCartStock($cart, $referrerId = null)
+    {
+        if (!$referrerId) {
+            $referralCode = \Illuminate\Support\Facades\Cookie::get('referral_code');
+            if ($referralCode) {
+                $referrerId = \App\Models\User::where('uuid', $referralCode)->value('id');
+            }
+        }
+
+        foreach ($cart as $item) {
+            $itemData = is_array($item) ? $item : (array) $item;
+            $itemId = $itemData['id'] ?? null;
+            $itemQuantity = $itemData['quantity'] ?? null;
+            $itemType = $itemData['type'] ?? 'item';
+
+            if ($itemType !== 'combo') {
+                $itemJpa = Item::find($itemId);
+                $vaultStock = 0;
+                if ($referrerId) {
+                    $vaultStock = \App\Models\InventoryVault::where('user_id', $referrerId)
+                        ->where('item_id', $itemId)
+                        ->where('destination', 'for_sale')
+                        ->where('quantity', '>', 0)
+                        ->sum('quantity');
+                }
+                $effectiveStock = ($itemJpa->stock ?? 0) + $vaultStock;
+                if ($itemJpa && !$itemJpa->stock_unlimited && $effectiveStock < $itemQuantity) {
+                    return "El producto {$itemJpa->name} no tiene suficiente stock disponible.";
+                }
+            }
+        }
+        return null;
+    }
+
+    private function processItemStockAndPrize($sale, $itemJpa, $itemId, $quantity, $itemName, $itemPrice, $itemImage)
+    {
+        $quantityNeeded = $quantity;
+        $fromVault = 0;
+
+        if ($sale->referrer_id) {
+            $vault = \App\Models\InventoryVault::where('user_id', $sale->referrer_id)
+                ->where('item_id', $itemId)
+                ->where('destination', 'for_sale')
+                ->where('quantity', '>', 0)
+                ->first();
+            if ($vault) {
+                $fromVault = min($vault->quantity, $quantityNeeded);
+                $vault->decrement('quantity', $fromVault);
+            }
+        }
+
+        SaleDetail::create([
+            'sale_id' => $sale->id,
+            'item_id' => $itemId,
+            'combo_id' => null,
+            'type' => 'item',
+            'name' => $itemName,
+            'price' => $itemPrice,
+            'quantity' => $quantityNeeded,
+            'image' => $itemImage,
+            'provider_id' => $itemJpa?->provider_id,
+            'provider_price' => $itemJpa?->provider_price,
+            'is_prize' => ($fromVault >= $quantityNeeded),
+        ]);
+
+        $fromPhysical = $quantityNeeded - $fromVault;
+        if ($itemJpa && !$itemJpa->stock_unlimited && $fromPhysical > 0) {
+            Item::where('id', $itemId)->decrement('stock', $fromPhysical);
+        }
+    }
+
     public function getPaymentStatus($sale_id)
     {
         $sale = Sale::findOrFail($sale_id);
@@ -39,20 +110,12 @@ class PaymentController extends Controller
             Log::info('PaymentController - Datos recibidos:', $request->all());
 
             // Validar stock antes de procesar
-            foreach ($request->cart as $item) {
-                $itemId = is_array($item) ? $item['id'] ?? null : $item->id ?? null;
-                $itemQuantity = is_array($item) ? $item['quantity'] ?? null : $item->quantity ?? null;
-                $itemType = is_array($item) ? $item['type'] ?? 'item' : $item->type ?? 'item';
-
-                if ($itemType !== 'combo') {
-                    $itemJpa = Item::find($itemId);
-                    if ($itemJpa && !$itemJpa->stock_unlimited && $itemJpa->stock < $itemQuantity) {
-                        return response()->json([
-                            'status' => false,
-                            'message' => "El producto {$itemJpa->name} no tiene suficiente stock disponible."
-                        ], 400);
-                    }
-                }
+            $stockError = $this->validateCartStock($request->cart, $request->referrer_id);
+            if ($stockError) {
+                return response()->json([
+                    'status' => false,
+                    'message' => $stockError
+                ], 400);
             }
 
             // Redondear y convertir el monto a centavos para Culqi
@@ -269,22 +332,7 @@ class PaymentController extends Controller
                 } else {
                     // Es un item individual
                     $itemJpa = Item::find($itemId);
-                    SaleDetail::create([
-                        'sale_id' => $sale->id,
-                        'item_id' => $itemId,
-                        'combo_id' => null,
-                        'type' => 'item',
-                        'name' => $itemName,
-                        'price' => $itemPrice,
-                        'quantity' => $itemQuantity,
-                        'image' => $itemImage,
-                        'provider_id' => $itemJpa?->provider_id,
-                        'provider_price' => $itemJpa?->provider_price,
-                    ]);
-
-                    if ($itemJpa && !$itemJpa->stock_unlimited) {
-                        Item::where('id', $itemId)->decrement('stock', $itemQuantity);
-                    }
+                    $this->processItemStockAndPrize($sale, $itemJpa, $itemId, $itemQuantity, $itemName, $itemPrice, $itemImage);
                 }
             }
 
@@ -406,20 +454,12 @@ class PaymentController extends Controller
             Log::info('PaymentController::order - Datos recibidos:', $request->all());
 
             // Validar stock antes de procesar
-            foreach ($request->cart as $item) {
-                $itemId = is_array($item) ? $item['id'] ?? null : $item->id ?? null;
-                $itemQuantity = is_array($item) ? $item['quantity'] ?? null : $item->quantity ?? null;
-                $itemType = is_array($item) ? $item['type'] ?? 'item' : $item->type ?? 'item';
-
-                if ($itemType !== 'combo') {
-                    $itemJpa = Item::find($itemId);
-                    if ($itemJpa && !$itemJpa->stock_unlimited && $itemJpa->stock < $itemQuantity) {
-                        return response()->json([
-                            'status' => false,
-                            'message' => "El producto {$itemJpa->name} no tiene suficiente stock disponible."
-                        ], 400);
-                    }
-                }
+            $stockError = $this->validateCartStock($request->cart, $request->referrer_id);
+            if ($stockError) {
+                return response()->json([
+                    'status' => false,
+                    'message' => $stockError
+                ], 400);
             }
 
             $saleStatusPendiente = SaleStatus::getByName('Pendiente');
@@ -525,22 +565,7 @@ class PaymentController extends Controller
                     }
                 } else {
                     $itemJpa = Item::find($itemId);
-                    SaleDetail::create([
-                        'sale_id' => $sale->id,
-                        'item_id' => $itemId,
-                        'combo_id' => null,
-                        'type' => 'item',
-                        'name' => $itemName,
-                        'price' => $itemPrice,
-                        'quantity' => $itemQuantity,
-                        'image' => $itemImage,
-                        'provider_id' => $itemJpa?->provider_id,
-                        'provider_price' => $itemJpa?->provider_price,
-                    ]);
-
-                    if ($itemJpa && !$itemJpa->stock_unlimited) {
-                        Item::where('id', $itemId)->decrement('stock', $itemQuantity);
-                    }
+                    $this->processItemStockAndPrize($sale, $itemJpa, $itemId, $itemQuantity, $itemName, $itemPrice, $itemImage);
                 }
             }
 
@@ -639,15 +664,12 @@ class PaymentController extends Controller
             $saleStatusPagado = SaleStatus::getByName('Pagado');
 
             // Validar stock antes de crear la venta
-            foreach ($request->cart as $item) {
-                $itemData = is_array($item) ? $item : (array) $item;
-                $itemJpa = Item::find($itemData['id']);
-                if ($itemJpa && !$itemJpa->stock_unlimited && $itemJpa->stock < $itemData['quantity']) {
-                    return response()->json([
-                        'status' => false,
-                        'message' => "El producto {$itemJpa->name} no tiene suficiente stock disponible."
-                    ], 400);
-                }
+            $stockError = $this->validateCartStock($request->cart, $request->referrer_id);
+            if ($stockError) {
+                return response()->json([
+                    'status' => false,
+                    'message' => $stockError
+                ], 400);
             }
 
             // Registrar la venta (mismo código que charge() pero sin crear el cargo)
@@ -704,20 +726,15 @@ class PaymentController extends Controller
                 $itemData = is_array($item) ? $item : (array) $item;
 
                 $itemJpa = Item::find($itemData['id']);
-                SaleDetail::create([
-                    'sale_id' => $sale->id,
-                    'item_id' => $itemData['id'],
-                    'name' => $itemData['name'],
-                    'price' => $itemData['final_price'],
-                    'quantity' => $itemData['quantity'],
-                    'provider_id' => $itemJpa?->provider_id,
-                    'provider_price' => $itemJpa?->provider_price,
-                ]);
-
-                // Actualizar stock
-                if ($itemJpa && !$itemJpa->stock_unlimited && $itemJpa->stock > 0) {
-                    $itemJpa->decrement('stock', $itemData['quantity']);
-                }
+                $this->processItemStockAndPrize(
+                    $sale,
+                    $itemJpa,
+                    $itemData['id'],
+                    $itemData['quantity'],
+                    $itemData['name'],
+                    $itemData['final_price'] ?? $itemJpa?->final_price ?? 0,
+                    $itemData['image'] ?? $itemJpa?->image ?? null
+                );
             }
 
             // Registrar ganancias de proveedores
@@ -802,15 +819,12 @@ class PaymentController extends Controller
             Log::info('PaymentController::charge3DS - Datos recibidos:', $request->all());
 
             // Validar stock antes de crear la venta
-            foreach ($request->cart as $item) {
-                $itemData = is_array($item) ? $item : (array) $item;
-                $itemJpa = Item::find($itemData['id']);
-                if ($itemJpa && !$itemJpa->stock_unlimited && $itemJpa->stock < $itemData['quantity']) {
-                    return response()->json([
-                        'status' => false,
-                        'message' => "El producto {$itemJpa->name} no tiene suficiente stock disponible."
-                    ], 400);
-                }
+            $stockError = $this->validateCartStock($request->cart, $request->referrer_id);
+            if ($stockError) {
+                return response()->json([
+                    'status' => false,
+                    'message' => $stockError
+                ], 400);
             }
 
             // Validar que tengamos los parámetros 3DS
@@ -948,23 +962,15 @@ class PaymentController extends Controller
             // Crear detalles de venta
             foreach ($request->cart as $itemData) {
                 $itemJpa = Item::find($itemData['id']);
-                $saleDetailData = [
-                    'sale_id' => $sale->id,
-                    'item_id' => $itemData['id'],
-                    'name' => $itemData['name'],
-                    'price' => $itemData['final_price'],
-                    'quantity' => $itemData['quantity'],
-                    'image' => $itemData['image'] ?? null,
-                    'provider_id' => $itemJpa?->provider_id,
-                    'provider_price' => $itemJpa?->provider_price,
-                ];
-
-                SaleDetail::create($saleDetailData);
-
-                // Decrementar stock
-                if ($itemJpa && !$itemJpa->stock_unlimited && $itemJpa->stock > 0) {
-                    $itemJpa->decrement('stock', $itemData['quantity']);
-                }
+                $this->processItemStockAndPrize(
+                    $sale,
+                    $itemJpa,
+                    $itemData['id'],
+                    $itemData['quantity'],
+                    $itemData['name'],
+                    $itemData['final_price'] ?? $itemJpa?->final_price ?? 0,
+                    $itemData['image'] ?? null
+                );
             }
 
             // Registrar ganancias de proveedores

@@ -10,6 +10,7 @@ import SwitchFormGroup from "../Components/Adminto/form/SwitchFormGroup";
 import BasicRest from "../Actions/BasicRest";
 import ReactAppend from "../Utils/ReactAppend";
 import DxButton from "../Components/dx/DxButton";
+import FieldHelp from "../Components/Adminto/form/FieldHelp";
 
 const ranksRest = new BasicRest();
 ranksRest.path = "admin/ranks";
@@ -18,7 +19,6 @@ const Ranks = ({}) => {
     const gridRef = useRef();
     const modalRef = useRef();
     const [isEditing, setIsEditing] = useState(false);
-    const [isGroup, setIsGroup] = useState(false);
 
     // Form refs
     const idRef = useRef();
@@ -43,7 +43,6 @@ const Ranks = ({}) => {
 
     const onModalOpen = (data) => {
         setIsEditing(!!data?.id);
-        setIsGroup(data?.is_group || false);
         
         if (idRef.current) idRef.current.value = data?.id || "";
         if (nameRef.current) nameRef.current.value = data?.name || "";
@@ -75,7 +74,6 @@ const Ranks = ({}) => {
             name: nameRef.current?.value,
             description: descriptionRef.current?.value,
             requirement_type: requirementTypeRef.current?.value,
-            is_group: isGroup,
             min_personal_items: minPersonalRef.current?.value,
             min_group_items: minGroupRef.current?.value,
             requirement_logic: requirementLogicRef.current?.value,
@@ -176,7 +174,7 @@ const Ranks = ({}) => {
                         caption: "Metas Requeridas",
                         width: 180,
                         cellTemplate: (container, { data }) => {
-                            const unit = data.requirement_type === 'items' ? 'prendas' : 'puntos';
+                            const unit = data.requirement_type === 'items' ? 'productos' : 'puntos';
                             const parts = [];
                             if (parseFloat(data.min_personal_items) > 0) parts.push(`Pers: ${data.min_personal_items}`);
                             if (parseFloat(data.min_group_items) > 0) parts.push(`Grup: ${data.min_group_items}`);
@@ -186,13 +184,16 @@ const Ranks = ({}) => {
                         }
                     },
                     {
-                        caption: "Bonos Extra (Grupales)",
+                        caption: "Bonos Extra (Personales / Grupales)",
                         cellTemplate: (container, { data }) => {
                             const bonuses = data.rank_bonuses || [];
                             if (bonuses.length === 0) return container.text('-');
                             
                             const html = bonuses.map(b => 
-                                `<div class="text-success small fw-bold">+ S/ ${parseFloat(b.bonus_amount).toLocaleString()} (${b.min_value} ${b.type === 'items' ? 'prendas' : 'puntos'})</div>`
+                                `<div class="text-success small fw-bold mb-1">
+                                    <span class="badge badge-soft-${b.is_group ? "warning" : "secondary"} me-1" style="font-size: 9px;">${b.is_group ? "Grupal" : "Personal"}</span>
+                                    + S/ ${parseFloat(b.bonus_amount).toLocaleString()} (${b.min_value} ${b.type === 'items' ? 'productos' : 'puntos'})
+                                </div>`
                             ).join('');
                             $(container).html(html);
                         }
@@ -279,21 +280,62 @@ const Ranks = ({}) => {
                 <input type="hidden" ref={idRef} />
                 <div className="row g-3">
                     <div className="col-md-8">
-                        <InputFormGroup eRef={nameRef} label="Nombre del Rango" required />
+                        <InputFormGroup 
+                            eRef={nameRef} 
+                            label={
+                                <span>
+                                    Nombre del Rango
+                                    <FieldHelp 
+                                        title="Nombre del Rango" 
+                                        description="Nombre comercial o institucional del rango o nivel en la carrera de ventas (ej. Promotor Junior, Senior, Manager, Director Master)." 
+                                        example="Si defines 'Manager Executive', los promotores que alcancen los requisitos ostentarán ese título oficial en su perfil."
+                                    />
+                                </span>
+                            } 
+                            required 
+                        />
                     </div>
                     <div className="col-md-4">
-                        <InputFormGroup eRef={colorRef} label="Color" type="color" required />
+                        <InputFormGroup 
+                            eRef={colorRef} 
+                            label={
+                                <span>
+                                    Color
+                                    <FieldHelp 
+                                        title="Color del Rango" 
+                                        description="Color identificador en formato hexadecimal (#HEX) usado para pintar badges, insignias y las tarjetas del árbol de red." 
+                                        example="'#2e7d32' (verde) para rangos estándar, '#f1b44c' (dorado) para niveles directivos."
+                                    />
+                                </span>
+                            } 
+                            type="color" 
+                            required 
+                        />
                     </div>
                     
                     <div className="col-md-6">
-                        <label className="form-label">Tipo de Unidad</label>
+                        <label className="form-label">
+                            Tipo de Unidad
+                            <FieldHelp 
+                                title="Tipo de Unidad de Medida" 
+                                description="Define si las metas de ascenso de este rango se miden por número de productos vendidos (unidades físicas) o por monto en ventas (Soles S/.)." 
+                                example="Con 'Productos', una meta de 150 exige vender 150 productos. Con 'Ventas (Soles)', exige facturar S/ 150 en dinero."
+                            />
+                        </label>
                         <select className="form-select" ref={requirementTypeRef}>
-                            <option value="items">Prendas (Unidades)</option>
+                            <option value="items">Productos (Unidades)</option>
                             <option value="amount">Ventas (Soles S/.)</option>
                         </select>
                     </div>
                     <div className="col-md-6">
-                        <label className="form-label">Lógica de Requisito</label>
+                        <label className="form-label">
+                            Lógica de Requisito
+                            <FieldHelp 
+                                title="Lógica de Requisito (OR / AND)" 
+                                description="Establece cómo se relacionan la Meta Personal y la Meta Grupal: <ul><li><b>OR (Cualquiera):</b> Asciende si cumple la Meta Personal O la Meta Grupal.</li><li><b>AND (Ambos):</b> Debe cumplir obligatoriamente AMBAS metas simultáneamente.</li></ul>" 
+                                example="Si configuras 100 Personal y 500 Grupal con 'OR': un vendedor con 100 productos personales asciende aunque no tenga grupo. Con 'AND': requiere 100 personales Y 500 grupales."
+                            />
+                        </label>
                         <select className="form-select" ref={requirementLogicRef}>
                             <option value="OR">Cualquiera (Personal O Grupal)</option>
                             <option value="AND">Ambos (Personal Y Grupal)</option>
@@ -301,27 +343,91 @@ const Ranks = ({}) => {
                     </div>
 
                     <div className="col-md-6">
-                        <InputFormGroup eRef={minPersonalRef} label="Meta Personal" type="number" step="0.01" />
+                        <InputFormGroup 
+                            eRef={minPersonalRef} 
+                            label={
+                                <span>
+                                    Meta Personal
+                                    <FieldHelp 
+                                        title="Meta Personal" 
+                                        description="Volumen mínimo (en productos o en Soles) que debe vender el promotor por su cuenta directa." 
+                                        example="Si colocas 150, el promotor debe generar al menos 150 productos vendidos con sus propios enlaces para calificar."
+                                    />
+                                </span>
+                            } 
+                            type="number" 
+                            step="0.01" 
+                        />
                     </div>
                     <div className="col-md-6">
-                        <InputFormGroup eRef={minGroupRef} label="Meta Grupal (Equipo)" type="number" step="0.01" />
+                        <InputFormGroup 
+                            eRef={minGroupRef} 
+                            label={
+                                <span>
+                                    Meta Grupal (Equipo)
+                                    <FieldHelp 
+                                        title="Meta Grupal (Equipo)" 
+                                        description="Volumen total acumulado generado por toda la red descendente del vendedor (suma de sus ventas personales más las de todos sus referidos directos e indirectos)." 
+                                        example="Si pones 1,000 productos grupales, el promotor y todo su equipo deben acumular al menos 1,000 productos en conjunto."
+                                    />
+                                </span>
+                            } 
+                            type="number" 
+                            step="0.01" 
+                        />
                     </div>
 
                     <div className="col-md-4">
-                        <InputFormGroup eRef={commissionPercentRef} label="% Comis. Venta" type="number" step="0.01" required />
+                        <InputFormGroup 
+                            eRef={commissionPercentRef} 
+                            label={
+                                <span>
+                                    % Comis. Venta
+                                    <FieldHelp 
+                                        title="% Comisión por Venta Ordinaria" 
+                                        description="Porcentaje de ganancia que gana el vendedor por cada producto regular vendido mientras ostente este rango." 
+                                        example="Con 25%: Por una venta regular de S/ 100, el promotor se adjudica S/ 25 de comisión aprobada."
+                                    />
+                                </span>
+                            } 
+                            type="number" 
+                            step="0.01" 
+                            required 
+                        />
                     </div>
                     <div className="col-md-4">
-                        <InputFormGroup eRef={prizeCommissionPercentRef} label="% Comis. Bono" type="number" step="0.01" required />
+                        <InputFormGroup 
+                            eRef={prizeCommissionPercentRef} 
+                            label={
+                                <span>
+                                    % Comis. Bono
+                                    <FieldHelp 
+                                        title="% Comisión de Bono/Premio (Bóveda)" 
+                                        description="Porcentaje de comisión que recibe el vendedor cuando vende un producto que tenía almacenado en su Bóveda de Premios (productos regalados o ganados como premio)." 
+                                        example="Fijado en 100%: Si vende un producto de S/ 100 que tenía en su Bóveda de Premios, recibe el 100% (S/ 100), monetizando íntegramente su regalo."
+                                    />
+                                </span>
+                            } 
+                            type="number" 
+                            step="0.01" 
+                            required 
+                        />
                     </div>
                     <div className="col-md-4">
-                        <InputFormGroup eRef={bonusAmountRef} label="Bono Fijo (S/.)" type="number" step="0.01" />
-                    </div>
-                    <div className="col-md-4 align-self-end">
-                        <SwitchFormGroup 
-                            checked={isGroup} 
-                            onChange={setIsGroup} 
-                            label="Meta Grupal Principal?" 
-                            refreshable={isEditing}
+                        <InputFormGroup 
+                            eRef={bonusAmountRef} 
+                            label={
+                                <span>
+                                    Bono Fijo (S/.)
+                                    <FieldHelp 
+                                        title="Bono Fijo por Ascenso (S/.)" 
+                                        description="Recompensa en dinero en efectivo que se entrega por única vez de manera automática al vendedor en el instante en que asciende a este rango." 
+                                        example="Si colocas 500, al subir a este nivel se genera una comisión instantánea de S/ 500 aprobada en su cuenta."
+                                    />
+                                </span>
+                            } 
+                            type="number" 
+                            step="0.01" 
                         />
                     </div>
 
@@ -329,35 +435,154 @@ const Ranks = ({}) => {
                     <h5 className="mb-0 text-primary">Requisitos de Red y Mantenimiento</h5>
 
                     <div className="col-md-4">
-                        <InputFormGroup eRef={minActiveRecruitsRef} label="Reclutas Activos" type="number" />
+                        <InputFormGroup 
+                            eRef={minActiveRecruitsRef} 
+                            label={
+                                <span>
+                                    Reclutas Activos
+                                    <FieldHelp 
+                                        title="Reclutas Activos Requeridos" 
+                                        description="Número mínimo de referidos directos que el promotor debe tener calificados como activos durante el mes." 
+                                        example="Si colocas 10, el promotor debe tener al menos 10 reclutas directos que hayan comprado en el mes el monto mínimo requerido."
+                                    />
+                                </span>
+                            } 
+                            type="number" 
+                        />
                     </div>
                     <div className="col-md-4">
-                        <InputFormGroup eRef={minActiveSellerAmountRef} label="Mín. Venta Activo (S/.)" type="number" step="0.01" />
+                        <InputFormGroup 
+                            eRef={minActiveSellerAmountRef} 
+                            label={
+                                <span>
+                                    Mín. Venta Activo (S/.)
+                                    <FieldHelp 
+                                        title="Monto Mínimo para Vendedor Activo (S/.)" 
+                                        description="Monto mínimo de compras o ventas pagadas en el mes que debe registrar un referido directo para ser considerado como 'Activo'." 
+                                        example="Con S/ 300: Un recluta que compró S/ 350 cuenta como 1 activo; un recluta que compró S/ 100 no califica como activo."
+                                    />
+                                </span>
+                            } 
+                            type="number" 
+                            step="0.01" 
+                        />
                     </div>
                     <div className="col-md-4">
-                        <InputFormGroup eRef={fixedSalaryRef} label="Sueldo Fijo (S/.)" type="number" step="0.01" />
+                        <InputFormGroup 
+                            eRef={fixedSalaryRef} 
+                            label={
+                                <span>
+                                    Sueldo Fijo (S/.)
+                                    <FieldHelp 
+                                        title="Sueldo Fijo Mensual (S/.)" 
+                                        description="Remuneración base mensual asignada a este rango para puestos de alta dirección o gestión regional." 
+                                        example="Para un 'Director Asociado', un sueldo fijo de S/ 2,000 mensuales adicional a sus comisiones de ventas."
+                                    />
+                                </span>
+                            } 
+                            type="number" 
+                            step="0.01" 
+                        />
                     </div>
 
                     <div className="col-md-3">
-                        <InputFormGroup eRef={minLeadersRef} label="Cant. Líderes" type="number" />
+                        <InputFormGroup 
+                            eRef={minLeadersRef} 
+                            label={
+                                <span>
+                                    Cant. Líderes
+                                    <FieldHelp 
+                                        title="Cantidad de Líderes Requeridos" 
+                                        description="Número de referidos directos que deben haber construido su propio equipo y calificar como líderes." 
+                                        example="Si indicas 3, el promotor debe contar con 3 referidos directos que a su vez lideren sus propios grupos de venta."
+                                    />
+                                </span>
+                            } 
+                            type="number" 
+                        />
                     </div>
                     <div className="col-md-3">
-                        <InputFormGroup eRef={recruitsPerLeaderRef} label="Reclutas x Líder" type="number" />
+                        <InputFormGroup 
+                            eRef={recruitsPerLeaderRef} 
+                            label={
+                                <span>
+                                    Reclutas x Líder
+                                    <FieldHelp 
+                                        title="Reclutas Mínimos por cada Líder" 
+                                        description="Tamaño mínimo de la organización descendente que debe tener un referido directo para calificar como líder válido." 
+                                        example="Si pones 10, un referido directo solo cuenta como líder si su red tiene al menos 10 vendedores."
+                                    />
+                                </span>
+                            } 
+                            type="number" 
+                        />
                     </div>
                     <div className="col-md-3">
-                        <InputFormGroup eRef={maintenanceMonthsRef} label="Meses Mantención" type="number" />
+                        <InputFormGroup 
+                            eRef={maintenanceMonthsRef} 
+                            label={
+                                <span>
+                                    Meses Mantención
+                                    <FieldHelp 
+                                        title="Meses de Mantención Requeridos" 
+                                        description="Número de meses consecutivos durante los cuales el promotor debe sostener las metas antes de consolidar el ascenso oficial." 
+                                        example="Si fijas 3 meses, el promotor debe cumplir los requisitos durante 3 meses seguidos para subir permanentemente."
+                                    />
+                                </span>
+                            } 
+                            type="number" 
+                        />
                     </div>
                     <div className="col-md-3">
-                        <InputFormGroup eRef={lossConditionMonthsRef} label="Meses Pérdida" type="number" />
+                        <InputFormGroup 
+                            eRef={lossConditionMonthsRef} 
+                            label={
+                                <span>
+                                    Meses Pérdida
+                                    <FieldHelp 
+                                        title="Meses de Gracia / Pérdida de Rango" 
+                                        description="Cantidad de meses de gracia que se le permite al vendedor sin alcanzar la meta antes de degradar o descender su rango." 
+                                        example="Con 2 meses: si no cumple en enero y febrero sigue en el rango; pero si tampoco cumple en marzo, el sistema lo degrada."
+                                    />
+                                </span>
+                            } 
+                            type="number" 
+                        />
                     </div>
 
                     <hr className="my-2" />
 
                     <div className="col-12">
-                        <TextareaFormGroup eRef={benefitsRef} label="Beneficios Extra (Uno por línea)" rows={3} />
+                        <TextareaFormGroup 
+                            eRef={benefitsRef} 
+                            label={
+                                <span>
+                                    Beneficios Extra (Uno por línea)
+                                    <FieldHelp 
+                                        title="Beneficios Extra del Rango" 
+                                        description="Listado de incentivos, reconocimientos o privilegios no monetarios que se muestran en el perfil del vendedor (un beneficio por renglón)." 
+                                        example="Capacitaciones VIP exclusivas\nLínea de crédito comercial\nInsignia dorada en catálogo"
+                                    />
+                                </span>
+                            } 
+                            rows={3} 
+                        />
                     </div>
                     <div className="col-12">
-                        <TextareaFormGroup eRef={descriptionRef} label="Descripción Interna" rows={2} />
+                        <TextareaFormGroup 
+                            eRef={descriptionRef} 
+                            label={
+                                <span>
+                                    Descripción Interna
+                                    <FieldHelp 
+                                        title="Descripción Interna" 
+                                        description="Anotación o resumen interno para los administradores sobre el perfil y propósito del rango." 
+                                        example="Nivel de consolidación para vendedores con red activa en provincias."
+                                    />
+                                </span>
+                            } 
+                            rows={2} 
+                        />
                     </div>
                 </div>
             </Modal>

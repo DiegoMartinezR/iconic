@@ -22,6 +22,13 @@ class Kernel extends ConsoleKernel
                  ->withoutOverlapping()
                  ->runInBackground()
                  ->appendOutputTo(storage_path('logs/promotional-tags.log'));
+
+        // Cierre mensual y evaluación de degradación de rangos del Plan de Carrera (el 1° de cada mes a la 01:00 AM)
+        $schedule->command('career-plan:evaluate-downgrades')
+                 ->monthlyOn(1, '01:00')
+                 ->withoutOverlapping()
+                 ->runInBackground()
+                 ->appendOutputTo(storage_path('logs/career-plan-downgrades.log'));
     }
 
     /**

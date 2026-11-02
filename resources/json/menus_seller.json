@@ -13,7 +13,8 @@
     "items": [
       { "label": "Mis Referidos", "href": "/seller/referrals", "icon": "mdi mdi-account-group-outline" },
       { "label": "Mis Solicitudes", "href": "/seller/job-applications", "icon": "mdi mdi-clipboard-text-outline" },
-      { "label": "Mi Billetera", "href": "/seller/wallet", "icon": "mdi mdi-wallet-outline" }
+      { "label": "Mi Billetera", "href": "/seller/wallet", "icon": "mdi mdi-wallet-outline" },
+      { "label": "Mis Liquidaciones", "href": "/seller/settlements", "icon": "mdi mdi-calculator-variant-outline" }
     ]
   },
   {

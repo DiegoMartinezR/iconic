@@ -163,31 +163,89 @@ class FinancialEngine
         $user->total_items = $totalItems;
         $user->save();
 
-        // Actualizar totales de grupo para él y sus ancestros
-        $this->updateGroupTotalsRecursively($user);
+        // Actualizar totales de grupo para él y sus ancestros (hasta 2 generaciones hacia arriba)
+        $this->updateGroupTotalsUpwards($user);
     }
 
     /**
-     * Propaga los totales de grupo hacia arriba en el árbol de referidos
+     * Obtiene los IDs de los descendientes de hasta la 2da línea (Nivel 1 directos + Nivel 2 nietos).
      */
-    private function updateGroupTotalsRecursively(User $user)
+    public function getTwoLevelsDescendantIds($userId): array
     {
-        // Totales de grupo = Propios + Suma de totales de grupo de referidos directos
-        $childrenTotals = User::where('referred_by', $user->id)
-            ->selectRaw('SUM(group_points) as total_gp, SUM(group_items) as total_gi')
-            ->first();
+        $id = is_object($userId) ? $userId->id : $userId;
 
-        $user->group_points = $user->total_points + ($childrenTotals->total_gp ?? 0);
-        $user->group_items = $user->total_items + ($childrenTotals->total_gi ?? 0);
+        // Nivel 1: Afiliados directos
+        $level1Ids = User::where('referred_by', $id)->pluck('id')->toArray();
+        if (empty($level1Ids)) {
+            return [];
+        }
+
+        // Nivel 2: Afiliados de los directos (nietos)
+        $level2Ids = User::whereIn('referred_by', $level1Ids)->pluck('id')->toArray();
+
+        return array_unique(array_merge($level1Ids, $level2Ids));
+    }
+
+    /**
+     * Calcula y guarda los totales de grupo para un usuario considerando únicamente
+     * sus ventas personales + ventas personales de su Línea 1 + ventas personales de su Línea 2.
+     */
+    public function updateGroupTotals(User $user)
+    {
+        $descendantIds = $this->getTwoLevelsDescendantIds($user->id);
+
+        if (empty($descendantIds)) {
+            $user->group_points = $user->total_points;
+            $user->group_items = $user->total_items;
+        } else {
+            // Sumar las ventas personales (total_points y total_items) exclusivamente de línea 1 y línea 2
+            $networkTotals = User::whereIn('id', $descendantIds)
+                ->selectRaw('COALESCE(SUM(total_points), 0) as net_points, COALESCE(SUM(total_items), 0) as net_items')
+                ->first();
+
+            $user->group_points = $user->total_points + (float) ($networkTotals->net_points ?? 0);
+            $user->group_items = $user->total_items + (float) ($networkTotals->net_items ?? 0);
+        }
+
         $user->save();
+    }
 
-        // Si tiene un padre, actualizarlo también
+    /**
+     * Propaga la actualización de ventas personales hacia arriba en el árbol:
+     * Solo afecta a su patrocinador directo (Nivel 1 arriba) y al patrocinador de este (Nivel 2 arriba).
+     */
+    public function updateGroupTotalsUpwards(User $user)
+    {
+        // 1. Actualizar el propio usuario
+        $this->updateGroupTotals($user);
+
+        // 2. Patrocinador directo (para quien este usuario es Línea 1)
         if ($user->referred_by) {
             $parent = User::find($user->referred_by);
             if ($parent) {
-                $this->updateGroupTotalsRecursively($parent);
+                $this->updateGroupTotals($parent);
+                $this->evaluateRankUpgrade($parent);
+                $this->evaluateRankBonuses($parent);
+
+                // 3. Patrocinador del patrocinador (para quien este usuario es Línea 2)
+                if ($parent->referred_by) {
+                    $grandparent = User::find($parent->referred_by);
+                    if ($grandparent) {
+                        $this->updateGroupTotals($grandparent);
+                        $this->evaluateRankUpgrade($grandparent);
+                        $this->evaluateRankBonuses($grandparent);
+                    }
+                }
             }
         }
+    }
+
+    /**
+     * Alias de compatibilidad
+     */
+    public function updateGroupTotalsRecursively(User $user)
+    {
+        $this->updateGroupTotalsUpwards($user);
     }
 
     /**
@@ -468,8 +526,8 @@ class FinancialEngine
             ->where('sale_statuses.name', 'like', '%Pagado%')
             ->sum('sale_details.quantity');
 
-        // Para volumen de grupo en el pasado, necesitamos sumar ventas de descendientes en ese periodo
-        $descendantIds = $this->getAllDescendantIds($user->id);
+        // Para volumen de grupo en el periodo, sumamos ventas personales de descendientes de hasta 2 niveles (Línea 1 + Línea 2)
+        $descendantIds = $this->getTwoLevelsDescendantIds($user->id);
         
         $groupPoints = Sale::whereIn('referrer_id', $descendantIds)
             ->whereBetween('created_at', [$start, $end])
@@ -504,7 +562,6 @@ class FinancialEngine
         if ($activeRecruits < $rank->min_active_recruits) return false;
 
         // 3. Validar Líderes
-        // El tamaño del equipo lo tomamos como el actual (o podríamos filtrarlo por fecha de creación si quisiéramos ser exactos)
         $leadersCount = $this->countLeaders($user, $rank->recruits_per_leader);
         if ($leadersCount < $rank->min_leaders) return false;
 
@@ -512,12 +569,46 @@ class FinancialEngine
     }
 
     /**
-     * Obtiene todos los IDs de los descendientes en el árbol.
+     * Recalcula los puntos y totales de grupo de todos los vendedores bajo la regla estricta de 2 niveles.
      */
-    private function getAllDescendantIds(int $userId): array
+    public function recalculateAllUsersTwoLevels()
     {
+        $sellers = User::whereHas('roles', fn($q) => $q->where('name', 'Seller'))->get();
+
+        // 1. Recalcular ventas personales de todos
+        foreach ($sellers as $seller) {
+            $totalVolume = Sale::where('referrer_id', $seller->id)
+                ->whereHas('status', fn($q) => $q->where('name', 'like', '%Pagado%'))
+                ->sum('total_amount');
+
+            $totalItems = DB::table('sales')
+                ->join('sale_details', 'sales.id', '=', 'sale_details.sale_id')
+                ->join('sale_statuses', 'sales.status_id', '=', 'sale_statuses.id')
+                ->where('sales.referrer_id', $seller->id)
+                ->where('sale_statuses.name', 'like', '%Pagado%')
+                ->sum('sale_details.quantity');
+
+            $seller->total_points = $totalVolume;
+            $seller->total_items = $totalItems;
+            $seller->save();
+        }
+
+        // 2. Con las ventas personales actualizadas, calcular el grupo (Nivel 1 + Nivel 2)
+        foreach ($sellers as $seller) {
+            $this->updateGroupTotals($seller);
+            $this->evaluateRankUpgrade($seller);
+            $this->evaluateRankBonuses($seller);
+        }
+    }
+
+    /**
+     * Obtiene todos los IDs de los descendientes en el árbol (recursivo ilimitado para árbol o métricas globales).
+     */
+    public function getAllDescendantIds($userId): array
+    {
+        $id = is_object($userId) ? $userId->id : $userId;
         $ids = [];
-        $childrenIds = User::where('referred_by', $userId)->pluck('id')->toArray();
+        $childrenIds = User::where('referred_by', $id)->pluck('id')->toArray();
         
         $ids = array_merge($ids, $childrenIds);
         

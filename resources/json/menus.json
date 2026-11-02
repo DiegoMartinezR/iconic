@@ -53,6 +53,11 @@
         "icon": "mdi mdi-wallet-giftcard"
       },
       {
+        "label": "Liquidaciones",
+        "href": "/admin/settlements",
+        "icon": "mdi mdi-calculator-variant-outline"
+      },
+      {
         "label": "Productos",
         "icon": "mdi mdi-view-dashboard",
         "children": [

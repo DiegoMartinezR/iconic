@@ -1202,6 +1202,9 @@ const Sellers = ({ ranks = [] }) => {
                                             <th className="text-center">
                                                 Cant. en Bóveda
                                             </th>
+                                            <th className="text-center">
+                                                Destino / Uso
+                                            </th>
                                             <th className="text-end">Acciones</th>
                                         </tr>
                                     </thead>
@@ -1209,7 +1212,7 @@ const Sellers = ({ ranks = [] }) => {
                                         {vaultData.length === 0 ? (
                                             <tr>
                                                 <td
-                                                    colSpan="3"
+                                                    colSpan="4"
                                                     className="text-center py-3 text-muted"
                                                 >
                                                     No hay ítems en la bóveda
@@ -1232,16 +1235,32 @@ const Sellers = ({ ranks = [] }) => {
                                                             {item.quantity}
                                                         </span>
                                                     </td>
+                                                    <td className="text-center">
+                                                        {item.destination === "claim_physical" ? (
+                                                            <span className="badge bg-soft-info text-info border border-info border-opacity-25 px-2 py-1">
+                                                                <i className="fas fa-box-open me-1"></i> Reclamo ({item.claim_type === "delivery" ? "Delivery" : "Recojo"})
+                                                            </span>
+                                                        ) : (
+                                                            <span className="badge bg-soft-success text-success border border-success border-opacity-25 px-2 py-1">
+                                                                <i className="fas fa-store me-1"></i> Tienda Online
+                                                            </span>
+                                                        )}
+                                                    </td>
                                                     <td className="text-end">
                                                         <button
+                                                            type="button"
                                                             className="btn btn-xs btn-outline-primary me-1"
                                                             title="Ajustar / Editar cantidad"
-                                                            onClick={() => {
+                                                            onClick={(e) => {
+                                                                e.preventDefault();
+                                                                e.stopPropagation();
                                                                 $(vaultItemRef.current).val(item.item_id).trigger("change");
                                                                 setSelectedVaultItemId(String(item.item_id));
                                                                 setVaultMode("set");
                                                                 if (vaultQuantityRef.current) {
                                                                     vaultQuantityRef.current.value = item.quantity;
+                                                                    vaultQuantityRef.current.focus();
+                                                                    vaultQuantityRef.current.select();
                                                                 }
                                                                 setVaultQuantityVal(String(item.quantity));
                                                             }}
@@ -1249,13 +1268,16 @@ const Sellers = ({ ranks = [] }) => {
                                                             <i className="fa fa-pen"></i>
                                                         </button>
                                                         <button
+                                                            type="button"
                                                             className="btn btn-xs btn-outline-danger"
                                                             title="Eliminar de la bóveda y devolver stock"
-                                                            onClick={() =>
+                                                            onClick={(e) => {
+                                                                e.preventDefault();
+                                                                e.stopPropagation();
                                                                 onDeleteVaultItem(
                                                                     item.id,
-                                                                )
-                                                            }
+                                                                );
+                                                            }}
                                                         >
                                                             <i className="fa fa-trash"></i>
                                                         </button>
